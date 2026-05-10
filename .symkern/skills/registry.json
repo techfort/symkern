@@ -25,20 +25,32 @@
           "n2"
         ],
         "estimated_interpreted_ns": 1350000,
-        "estimated_compiled_ns": 250000,
+        "estimated_compiled_ns": 29236,
         "selection_reason": "Selected the backend with the lowest estimated execution cost for the numeric slice."
       },
-      "selection_count": 1,
-      "success_count": 1,
-      "total_execute_ns": 25648,
-      "mean_execute_ns": 25648,
-      "last_execute_ns": 25648,
-      "active_reference_count": 1,
-      "status": "experimental",
+      "selection_count": 4,
+      "success_count": 4,
+      "total_execute_ns": 110016,
+      "mean_execute_ns": 27504,
+      "last_execute_ns": 22306,
+      "active_reference_count": 4,
+      "status": "trusted",
       "artifact_examples": [
         {
           "backend_source": "artifacts/run-20260510T182713462134Z/backend/c_gaussian_array_statistics_plan-default.c",
           "backend_binary": "artifacts/run-20260510T182713462134Z/backend/c_gaussian_array_statistics_plan-default"
+        },
+        {
+          "backend_source": "artifacts/run-20260510T183428475400Z/backend/c_gaussian_array_statistics_plan-default.c",
+          "backend_binary": "artifacts/run-20260510T183428475400Z/backend/c_gaussian_array_statistics_plan-default"
+        },
+        {
+          "backend_source": "artifacts/run-20260510T183458249416Z/backend/c_gaussian_array_statistics_plan-default.c",
+          "backend_binary": "artifacts/run-20260510T183458249416Z/backend/c_gaussian_array_statistics_plan-default"
+        },
+        {
+          "backend_source": "artifacts/run-20260510T183533136878Z/backend/c_gaussian_array_statistics_plan-default.c",
+          "backend_binary": "artifacts/run-20260510T183533136878Z/backend/c_gaussian_array_statistics_plan-default"
         }
       ],
       "executable_references": [
@@ -46,11 +58,41 @@
           "run_id": "run-20260510T182713462134Z",
           "machine_code_path": "artifacts/run-20260510T182713462134Z/machine_code.bin",
           "target": "c.gaussian_array_statistics"
+        },
+        {
+          "run_id": "run-20260510T183428475400Z",
+          "machine_code_path": "artifacts/run-20260510T183428475400Z/machine_code.bin",
+          "target": "c.gaussian_array_statistics"
+        },
+        {
+          "run_id": "run-20260510T183458249416Z",
+          "machine_code_path": "artifacts/run-20260510T183458249416Z/machine_code.bin",
+          "target": "c.gaussian_array_statistics"
+        },
+        {
+          "run_id": "run-20260510T183533136878Z",
+          "machine_code_path": "artifacts/run-20260510T183533136878Z/machine_code.bin",
+          "target": "c.gaussian_array_statistics"
         }
       ],
       "source_runs": [
         {
           "run_id": "run-20260510T182713462134Z",
+          "prompt": "Make up an array of 20 numbers with random numbers between 0-20 following a gaussian distribution. Produce the standard deviation, mean and median.",
+          "success": true
+        },
+        {
+          "run_id": "run-20260510T183428475400Z",
+          "prompt": "Make up an array of 20 numbers with random numbers between 0-20 following a gaussian distribution. Produce the standard deviation, mean and median.",
+          "success": true
+        },
+        {
+          "run_id": "run-20260510T183458249416Z",
+          "prompt": "Make up an array of 20 numbers with random numbers between 0-20 following a gaussian distribution. Produce the standard deviation, mean and median.",
+          "success": true
+        },
+        {
+          "run_id": "run-20260510T183533136878Z",
           "prompt": "Make up an array of 20 numbers with random numbers between 0-20 following a gaussian distribution. Produce the standard deviation, mean and median.",
           "success": true
         }

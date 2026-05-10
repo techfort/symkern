@@ -4,3 +4,4 @@ __pycache__/
 *.pyc
 src/*.egg-info/
 src/symkern.egg-info/
+artifacts/run-*/
