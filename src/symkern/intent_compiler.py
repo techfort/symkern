@@ -100,6 +100,13 @@ class IntentCompiler:
             goals = ["detect_stream_anomalies"]
             state["domain"] = "stream_anomaly_detection"
             state["window_size"] = 5
+        elif "array" in lower and ("gaussian" in lower or "normal distribution" in lower) and any(
+            token in lower for token in ("standard deviation", "std deviation", "mean", "median")
+        ):
+            goals = ["generate_gaussian_array_statistics"]
+            state.update(self._extract_gaussian_statistics_state(lower))
+            state["domain"] = "array_statistics"
+            assumptions.append("Standard deviation is interpreted as population standard deviation for the generated array.")
         elif all(token in lower for token in ("array", "random", "map")):
             goals = ["generate_random_mapped_array"]
             state.update(self._extract_array_generation_state(lower))
@@ -126,10 +133,12 @@ class IntentCompiler:
         max_value = 10
 
         length_match = re.search(r"(\d+)[- ]element", prompt)
+        if not length_match:
+            length_match = re.search(r"array\s+of\s+(\d+)\s+numbers", prompt)
         if length_match:
             length = int(length_match.group(1))
 
-        range_match = re.search(r"between\s+(\d+)\s+and\s+(\d+)", prompt)
+        range_match = re.search(r"between\s+(\d+)\s*(?:and|-)\s*(\d+)", prompt)
         if range_match:
             min_value = int(range_match.group(1))
             max_value = int(range_match.group(2))
@@ -139,4 +148,15 @@ class IntentCompiler:
             "min_value": min_value,
             "max_value": max_value,
             "operation_pool": ["add", "subtract", "multiply"],
+        }
+
+    @staticmethod
+    def _extract_gaussian_statistics_state(prompt: str) -> dict[str, object]:
+        base = IntentCompiler._extract_array_generation_state(prompt)
+        return {
+            "length": int(base["length"]),
+            "min_value": int(base["min_value"]),
+            "max_value": int(base["max_value"]),
+            "distribution": "gaussian",
+            "requested_statistics": ["standard_deviation", "mean", "median"],
         }

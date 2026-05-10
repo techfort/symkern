@@ -22,6 +22,7 @@ class ArtifactBundle:
     compiler: dict[str, object] = field(default_factory=dict)
     files: dict[str, str] = field(default_factory=dict)
     language_snapshot: dict[str, object] = field(default_factory=dict)
+    timings: dict[str, object] = field(default_factory=dict)
 
     def machine_language_dict(self) -> dict[str, object]:
         if self.language_snapshot:
@@ -49,6 +50,7 @@ class ArtifactBundle:
             "trace": self.trace.to_dict(),
             "compiler": dict(self.compiler),
             "files": dict(self.files),
+            "timings": dict(self.timings),
         }
 
 

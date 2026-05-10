@@ -34,6 +34,7 @@ def test_artifact_store_round_trip(tmp_path: Path) -> None:
     assert machine_language["plan"]["nodes"] == []
     assert loaded["run_id"] == "run-test"
     assert loaded["status"] == "success"
+    assert loaded["timings"] == {}
 
 
 def test_machine_language_can_be_replayed(tmp_path: Path) -> None:
@@ -203,7 +204,50 @@ def test_machine_code_explain_command_writes_periscope_without_exposing_symbols(
     assert "## Reconstructed Strategy" in periscope_text
     assert "## Machine Intent Narrative" in periscope_text
     assert "## Machine Abstractions" in periscope_text
+    assert "## Performance" in periscope_text
     assert "compresses source opcodes" in periscope_text
     assert "conservative anomaly envelope" in periscope_text
     assert "fused scoring and threshold comparison" in periscope_text
     assert "Executed opcode 1000." in periscope_text
+    assert "kernel_total_ns:" in periscope_text
+    assert "Per-node execution:" in periscope_text
+    assert "## Inputs" in periscope_text
+    assert "Passed input `events` enters from outside the machine plan." in periscope_text
+    assert "## Outputs" in periscope_text
+    assert "Output `emitted` =" in periscope_text
+
+
+def test_machine_code_explain_command_includes_synthesized_inputs_and_outputs_for_array_runs(tmp_path: Path) -> None:
+    submitted = submit_prompt(
+        "Create a 5-element array of random numbers whose value is between 1 and 10, then create an array that is a map of the first array with random maths operation applied to the members of the first array.",
+        artifact_root=tmp_path,
+    )
+
+    explained = explain_machine_code(submitted["machine_code_path"], artifact_root=tmp_path)
+    periscope_text = Path(explained["periscope_path"]).read_text(encoding="utf-8")
+
+    assert explained["status"] == "success"
+    assert "## Inputs" in periscope_text
+    assert "Synthesized input `source_array` was created inside the plan before downstream use." in periscope_text
+    assert "## Outputs" in periscope_text
+    assert "## Performance" in periscope_text
+    assert "Output `source_array` = [9, 7, 5, 6, 5]" in periscope_text
+    assert "Output `mapped_array` = [10, 14, 4, 8, 10]" in periscope_text
+
+
+def test_submitted_artifact_persists_timings(tmp_path: Path) -> None:
+    submitted = submit_prompt(
+        "Make up an array of 20 numbers with random numbers between 0-20 following a gaussian distribution. Produce the standard deviation, mean and median.",
+        artifact_root=tmp_path,
+    )
+
+    artifact = ArtifactStore(tmp_path).load_machine_artifact(submitted["artifact_path"])
+
+    assert "timings" in artifact
+    assert artifact["timings"]["compile_ns"] > 0
+    assert artifact["timings"]["converge_ns"] > 0
+    assert artifact["timings"]["execute_ns"] > 0
+    assert artifact["timings"]["persist_periscope_render_ns"] > 0
+    assert artifact["timings"]["persist_total_ns"] > 0
+    assert artifact["timings"]["submit_total_ns"] > 0
+    assert set(artifact["timings"]["node_execute_ns"].keys()) == {"n1", "n2", "n3"}

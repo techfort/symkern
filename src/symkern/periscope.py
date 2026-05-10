@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from reprlib import repr as limited_repr
 
 from symkern.artifacts import ArtifactBundle
 
@@ -26,6 +27,8 @@ class Periscope:
             f"Run `{bundle.run_id}` converged with status `{bundle.status}`. "
             f"The machine artifact contains {len(bundle.plan.nodes)} nodes and invented abstractions: {invented}."
         )
+        input_lines = self._describe_inputs(bundle, operation_schemas)
+        output_lines = self._describe_outputs(bundle)
         strategy_lines = self._reconstruct_strategy(bundle, operation_schemas)
         narrative_lines = self._infer_machine_narratives(bundle, operation_schemas)
         abstraction_lines = self._describe_abstractions(bundle.inventions, operation_schemas)
@@ -36,6 +39,12 @@ class Periscope:
                 f"- Strategy: {bundle.plan.metadata.get('strategy', 'unknown')}",
                 f"- Final detections: {detections}",
                 f"- Reason codes: {', '.join(bundle.reason_codes) or 'none'}",
+                "## Inputs",
+                *input_lines,
+                "## Outputs",
+                *output_lines,
+                "## Performance",
+                *self._describe_performance(bundle),
                 "## Reconstructed Strategy",
                 *strategy_lines,
                 "## Machine Intent Narrative",
@@ -75,6 +84,78 @@ class Periscope:
             *stages,
             f"- The resulting output surface is {outputs}.",
         ]
+
+    @staticmethod
+    def _describe_inputs(bundle: ArtifactBundle, operation_schemas: dict[int, dict[str, object]]) -> list[str]:
+        produced_symbols = {
+            output
+            for node in bundle.plan.ordered_nodes()
+            for output in node.outputs
+        }
+        external_inputs: list[str] = []
+        for node in bundle.plan.ordered_nodes():
+            descriptor = operation_schemas.get(node.op_code or -1, {})
+            signature = dict(descriptor.get("signature", {}))
+            candidate_inputs = list(node.inputs) or list(signature.get("inputs", []))
+            for symbol in candidate_inputs:
+                if symbol not in produced_symbols and symbol not in external_inputs:
+                    external_inputs.append(symbol)
+
+        synthesized_inputs: list[str] = []
+        for node in bundle.plan.ordered_nodes():
+            descriptor = operation_schemas.get(node.op_code or -1, {})
+            signature = dict(descriptor.get("signature", {}))
+            if list(signature.get("inputs", [])):
+                continue
+            for symbol in node.outputs:
+                if symbol in bundle.outputs and symbol not in synthesized_inputs:
+                    synthesized_inputs.append(symbol)
+
+        lines: list[str] = []
+        if external_inputs:
+            lines.extend(f"- Passed input `{symbol}` enters from outside the machine plan." for symbol in external_inputs)
+        if synthesized_inputs:
+            lines.extend(
+                f"- Synthesized input `{symbol}` was created inside the plan before downstream use."
+                for symbol in synthesized_inputs
+            )
+        if not lines:
+            lines.append("- No explicit passed or synthesized inputs were surfaced for this run.")
+        return lines
+
+    @staticmethod
+    def _describe_outputs(bundle: ArtifactBundle) -> list[str]:
+        if not bundle.outputs:
+            return ["- No materialized outputs were produced."]
+
+        lines = []
+        for name, value in bundle.outputs.items():
+            lines.append(f"- Output `{name}` = {limited_repr(value)}")
+        return lines
+
+    @staticmethod
+    def _describe_performance(bundle: ArtifactBundle) -> list[str]:
+        if not bundle.timings:
+            return ["- No timing metrics were recorded for this run."]
+
+        lines: list[str] = []
+        node_timings = dict(bundle.timings.get("node_execute_ns", {}))
+        for key, value in bundle.timings.items():
+            if key == "node_execute_ns":
+                continue
+            if isinstance(value, int):
+                lines.append(f"- {key}: {Periscope._format_ns(value)}")
+
+        if node_timings:
+            lines.append(
+                "- Per-node execution: "
+                + ", ".join(f"{node_id}={Periscope._format_ns(int(duration_ns))}" for node_id, duration_ns in node_timings.items())
+            )
+        return lines or ["- No timing metrics were recorded for this run."]
+
+    @staticmethod
+    def _format_ns(duration_ns: int) -> str:
+        return f"{duration_ns / 1_000_000:.3f} ms"
 
     @staticmethod
     def _format_stage(category: str, op_codes: list[int], operation_schemas: dict[int, dict[str, object]]) -> str:

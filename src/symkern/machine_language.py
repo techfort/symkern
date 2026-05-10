@@ -3,7 +3,7 @@ from __future__ import annotations
 import random
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from statistics import mean
+from statistics import mean, median, pstdev
 
 from symkern.nodes import Node, PlanGraph
 from symkern.prompt_layer import PromptIntent
@@ -43,6 +43,8 @@ class MachineLanguage:
         "core.emit_sink": 105,
         "core.generate_random_array": 201,
         "core.random_math_map": 202,
+        "core.generate_gaussian_array": 203,
+        "core.compute_array_statistics": 204,
     }
     INVENTED_OPCODE_START = 1000
 
@@ -120,6 +122,26 @@ class MachineLanguage:
                 machine_metadata={"category": "array"},
                 handler=self._op_random_math_map,
                 description="Apply randomized math operations to each array element.",
+            )
+        )
+        self.register(
+            OperationSchema(
+                op_id="core.generate_gaussian_array",
+                op_code=self.BUILTIN_OPCODES["core.generate_gaussian_array"],
+                signature={"inputs": [], "outputs": ["source_array"]},
+                machine_metadata={"category": "array"},
+                handler=self._op_generate_gaussian_array,
+                description="Generate a bounded gaussian-distributed numeric array.",
+            )
+        )
+        self.register(
+            OperationSchema(
+                op_id="core.compute_array_statistics",
+                op_code=self.BUILTIN_OPCODES["core.compute_array_statistics"],
+                signature={"inputs": ["source_array"], "outputs": ["statistics"]},
+                machine_metadata={"category": "analytics"},
+                handler=self._op_compute_array_statistics,
+                description="Compute summary statistics for a numeric array.",
             )
         )
 
@@ -233,6 +255,39 @@ class MachineLanguage:
                 plan.add_edge(source, target)
             return plan
 
+        if any(goal == "generate_gaussian_array_statistics" for goal in intent.goals):
+            nodes = [
+                Node(
+                    "n1",
+                    op_code=self.BUILTIN_OPCODES["core.generate_gaussian_array"],
+                    outputs=["source_array"],
+                    metadata={
+                        "length": intent.state.get("length", 20),
+                        "min_value": intent.state.get("min_value", 0),
+                        "max_value": intent.state.get("max_value", 20),
+                    },
+                ),
+                Node(
+                    "n2",
+                    op_code=self.BUILTIN_OPCODES["core.compute_array_statistics"],
+                    inputs=["source_array"],
+                    outputs=["statistics"],
+                    metadata={"requested_statistics": list(intent.state.get("requested_statistics", ["standard_deviation", "mean", "median"]))},
+                ),
+                Node(
+                    "n3",
+                    op_code=self.BUILTIN_OPCODES["core.emit_sink"],
+                    inputs=["source_array", "statistics"],
+                    outputs=["emitted"],
+                    metadata={"sinks": intent.sinks, "emission_kind": "array_statistics"},
+                ),
+            ]
+            for node in nodes:
+                plan.add_node(node)
+            for source, target in (("n1", "n2"), ("n1", "n3"), ("n2", "n3")):
+                plan.add_edge(source, target)
+            return plan
+
         plan.add_node(Node("n1", op_code=self.BUILTIN_OPCODES["core.emit_sink"], outputs=["emitted"], metadata={"sinks": intent.sinks, "message": intent.goals[0]}))
         return plan
 
@@ -329,6 +384,14 @@ class MachineLanguage:
                     "sinks": node.metadata.get("sinks", []),
                 }
             }
+        if node.metadata.get("emission_kind") == "array_statistics":
+            return {
+                "emitted": {
+                    "source_array": list(context.get("source_array", [])),
+                    "statistics": dict(context.get("statistics", {})),
+                    "sinks": node.metadata.get("sinks", []),
+                }
+            }
         if "message" in node.metadata:
             return {"emitted": {"message": node.metadata["message"], "sinks": node.metadata.get("sinks", [])}}
         return {"emitted": {"detections": list(context.get("detections", [])), "sinks": node.metadata.get("sinks", [])}}
@@ -365,3 +428,33 @@ class MachineLanguage:
             operations.append(f"{operation}:{operand}")
 
         return {"mapped_array": mapped, "operations": operations}
+
+    @staticmethod
+    def _op_generate_gaussian_array(node: Node, context: dict[str, object]) -> dict[str, object]:
+        seed = context.get("seed", 17)
+        generator = random.Random(seed)
+        length = int(node.metadata.get("length", 20))
+        min_value = float(node.metadata.get("min_value", 0))
+        max_value = float(node.metadata.get("max_value", 20))
+        midpoint = (min_value + max_value) / 2.0
+        sigma = max((max_value - min_value) / 6.0, 0.0001)
+        values = [
+            round(min(max(generator.gauss(midpoint, sigma), min_value), max_value), 4)
+            for _ in range(length)
+        ]
+        return {"source_array": values}
+
+    @staticmethod
+    def _op_compute_array_statistics(node: Node, context: dict[str, object]) -> dict[str, object]:
+        values = [float(value) for value in context.get("source_array", [])]
+        requested = list(node.metadata.get("requested_statistics", ["standard_deviation", "mean", "median"]))
+        statistics: dict[str, float] = {}
+        if not values:
+            return {"statistics": statistics}
+        if "standard_deviation" in requested:
+            statistics["standard_deviation"] = round(pstdev(values), 4)
+        if "mean" in requested:
+            statistics["mean"] = round(mean(values), 4)
+        if "median" in requested:
+            statistics["median"] = round(median(values), 4)
+        return {"statistics": statistics}
