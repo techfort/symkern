@@ -1,0 +1,175 @@
+{
+  "run_id": "run-20260510T145947087044Z",
+  "prompt": "Detect anomalies in a streaming signal with low false positives and low latency",
+  "outputs": {
+    "windowed_events": [
+      [
+        {
+          "tick": 0,
+          "value": 10.0
+        },
+        {
+          "tick": 1,
+          "value": 9.8
+        },
+        {
+          "tick": 2,
+          "value": 10.1
+        },
+        {
+          "tick": 3,
+          "value": 10.2
+        },
+        {
+          "tick": 4,
+          "value": 9.9
+        }
+      ],
+      [
+        {
+          "tick": 5,
+          "value": 10.0
+        },
+        {
+          "tick": 6,
+          "value": 10.3
+        },
+        {
+          "tick": 7,
+          "value": 14.8
+        },
+        {
+          "tick": 8,
+          "value": 10.2
+        },
+        {
+          "tick": 9,
+          "value": 10.1
+        }
+      ]
+    ],
+    "baseline": [
+      10.0,
+      11.08
+    ],
+    "scores": [
+      0.1999999999999993,
+      3.7200000000000006
+    ],
+    "detections": [
+      1
+    ],
+    "emitted": {
+      "detections": [
+        1
+      ],
+      "sinks": [
+        "artifact_store",
+        "stdout"
+      ]
+    }
+  },
+  "status": "success",
+  "reason_codes": [
+    "goal_satisfied"
+  ],
+  "trace": {
+    "events": [
+      {
+        "stage": "compile",
+        "message": "Intent compiled into a machine plan request.",
+        "payload": {
+          "goals": [
+            "detect_stream_anomalies"
+          ]
+        }
+      },
+      {
+        "stage": "synthesize",
+        "message": "Plan graph synthesized.",
+        "payload": {
+          "plan_id": "plan-conservative",
+          "nodes": 5
+        }
+      },
+      {
+        "stage": "invent",
+        "message": "Accepted new abstraction.",
+        "payload": {
+          "op_id": "invented.detect_stream_anomaly",
+          "score": 0.86
+        }
+      },
+      {
+        "stage": "rewrite",
+        "message": "Plan rewritten to use invented abstraction.",
+        "payload": {
+          "op_id": "invented.detect_stream_anomaly",
+          "plan_id": "plan-conservative"
+        }
+      },
+      {
+        "stage": "execute",
+        "message": "Executed core.stream_window.",
+        "payload": {
+          "node_id": "n1",
+          "produced": [
+            "windowed_events"
+          ]
+        }
+      },
+      {
+        "stage": "execute",
+        "message": "Executed core.moving_baseline.",
+        "payload": {
+          "node_id": "n2",
+          "produced": [
+            "baseline"
+          ]
+        }
+      },
+      {
+        "stage": "execute",
+        "message": "Executed invented.detect_stream_anomaly.",
+        "payload": {
+          "node_id": "n3_invented",
+          "produced": [
+            "scores",
+            "detections"
+          ]
+        }
+      },
+      {
+        "stage": "execute",
+        "message": "Executed core.emit_sink.",
+        "payload": {
+          "node_id": "n5",
+          "produced": [
+            "emitted"
+          ]
+        }
+      },
+      {
+        "stage": "converge",
+        "message": "Kernel finished execution.",
+        "payload": {
+          "status": "success",
+          "score": 1.0
+        }
+      }
+    ]
+  },
+  "compiler": {
+    "translator": "mock-llm",
+    "confidence": 0.9,
+    "assumptions": [
+      "Natural-language prompt was normalized through the mock LLM compiler."
+    ],
+    "missing_information": []
+  },
+  "files": {
+    "machine_language": "artifacts/run-20260510T145947087044Z/machine_language.json",
+    "machine_artifact": "artifacts/run-20260510T145947087044Z/machine_artifact.json",
+    "periscope": "artifacts/run-20260510T145947087044Z/periscope.md"
+  }
+}

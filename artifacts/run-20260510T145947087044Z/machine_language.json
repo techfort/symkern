@@ -1,0 +1,214 @@
+{
+  "kind": "symkern.machine_language",
+  "schema_version": "symkern.machine-language/v1alpha1",
+  "plan": {
+    "plan_id": "plan-conservative",
+    "nodes": [
+      {
+        "node_id": "n1",
+        "op_id": "core.stream_window",
+        "inputs": [],
+        "outputs": [
+          "windowed_events"
+        ],
+        "execution_mode": "bulk",
+        "metadata": {
+          "window_size": 5
+        },
+        "provenance": {},
+        "state_refs": [],
+        "valid": true
+      },
+      {
+        "node_id": "n2",
+        "op_id": "core.moving_baseline",
+        "inputs": [
+          "windowed_events"
+        ],
+        "outputs": [
+          "baseline"
+        ],
+        "execution_mode": "bulk",
+        "metadata": {},
+        "provenance": {},
+        "state_refs": [],
+        "valid": true
+      },
+      {
+        "node_id": "n5",
+        "op_id": "core.emit_sink",
+        "inputs": [
+          "detections"
+        ],
+        "outputs": [
+          "emitted"
+        ],
+        "execution_mode": "bulk",
+        "metadata": {
+          "sinks": [
+            "artifact_store",
+            "stdout"
+          ]
+        },
+        "provenance": {},
+        "state_refs": [],
+        "valid": true
+      },
+      {
+        "node_id": "n3_invented",
+        "op_id": "invented.detect_stream_anomaly",
+        "inputs": [
+          "windowed_events",
+          "baseline"
+        ],
+        "outputs": [
+          "scores",
+          "detections"
+        ],
+        "execution_mode": "bulk",
+        "metadata": {
+          "threshold": 2.4
+        },
+        "provenance": {
+          "rewritten_from": [
+            "n3",
+            "n4"
+          ]
+        },
+        "state_refs": [],
+        "valid": true
+      }
+    ],
+    "edges": [
+      [
+        "n1",
+        "n2"
+      ],
+      [
+        "n1",
+        "n3_invented"
+      ],
+      [
+        "n2",
+        "n3_invented"
+      ],
+      [
+        "n3_invented",
+        "n5"
+      ]
+    ],
+    "state_bindings": {
+      "domain": "stream_anomaly_detection",
+      "window_size": 5
+    },
+    "metadata": {
+      "strategy": "conservative",
+      "goals": [
+        "detect_stream_anomalies"
+      ],
+      "rewrites_applied": [
+        "invented.detect_stream_anomaly"
+      ]
+    }
+  },
+  "operation_schemas": {
+    "core.emit_sink": {
+      "op_id": "core.emit_sink",
+      "signature": {
+        "inputs": [
+          "detections"
+        ],
+        "outputs": [
+          "emitted"
+        ]
+      },
+      "machine_metadata": {
+        "category": "sink"
+      },
+      "description": "Emit final detections to the configured sink."
+    },
+    "core.moving_baseline": {
+      "op_id": "core.moving_baseline",
+      "signature": {
+        "inputs": [
+          "windowed_events"
+        ],
+        "outputs": [
+          "baseline"
+        ]
+      },
+      "machine_metadata": {
+        "category": "analytics"
+      },
+      "description": "Compute rolling baselines."
+    },
+    "core.stream_window": {
+      "op_id": "core.stream_window",
+      "signature": {
+        "inputs": [
+          "events"
+        ],
+        "outputs": [
+          "windowed_events"
+        ]
+      },
+      "machine_metadata": {
+        "category": "stream"
+      },
+      "description": "Partition a stream into rolling windows."
+    },
+    "invented.detect_stream_anomaly": {
+      "op_id": "invented.detect_stream_anomaly",
+      "signature": {
+        "inputs": [
+          "windowed_events",
+          "baseline"
+        ],
+        "outputs": [
+          "scores",
+          "detections"
+        ]
+      },
+      "machine_metadata": {
+        "invented_from": [
+          "core.score_delta",
+          "core.compare_threshold"
+        ],
+        "metadata_projection": {
+          "core.compare_threshold": [
+            "threshold"
+          ]
+        },
+        "compression_gain": 2,
+        "kind": "sequence_specialization"
+      },
+      "description": "Repeated anomaly scoring and thresholding can be compressed into a reusable schema."
+    }
+  },
+  "inventions": [
+    {
+      "op_id": "invented.detect_stream_anomaly",
+      "source_ops": [
+        "core.score_delta",
+        "core.compare_threshold"
+      ],
+      "score": 0.86,
+      "accepted": true,
+      "rationale": "Repeated anomaly scoring and thresholding can be compressed into a reusable schema.",
+      "metadata": {
+        "compression_gain": 2,
+        "kind": "sequence_specialization"
+      }
+    }
+  ],
+  "plan_metadata": {
+    "strategy": "conservative",
+    "goals": [
+      "detect_stream_anomalies"
+    ],
+    "rewrites_applied": [
+      "invented.detect_stream_anomaly"
+    ]
+  },
+  "run_id": "run-20260510T145947087044Z"
+}

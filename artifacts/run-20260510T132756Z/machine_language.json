@@ -1,0 +1,106 @@
+{
+  "run_id": "run-20260510T132756Z",
+  "plan": {
+    "plan_id": "plan-default",
+    "nodes": [
+      {
+        "node_id": "n1",
+        "op_id": "core.generate_random_array",
+        "inputs": [],
+        "outputs": [
+          "source_array"
+        ],
+        "execution_mode": "bulk",
+        "metadata": {
+          "length": 5,
+          "min_value": 1,
+          "max_value": 10
+        },
+        "provenance": {},
+        "state_refs": [],
+        "valid": true
+      },
+      {
+        "node_id": "n2",
+        "op_id": "core.random_math_map",
+        "inputs": [
+          "source_array"
+        ],
+        "outputs": [
+          "mapped_array",
+          "operations"
+        ],
+        "execution_mode": "bulk",
+        "metadata": {
+          "operation_pool": [
+            "add",
+            "subtract",
+            "multiply"
+          ]
+        },
+        "provenance": {},
+        "state_refs": [],
+        "valid": true
+      },
+      {
+        "node_id": "n3",
+        "op_id": "core.emit_sink",
+        "inputs": [
+          "mapped_array",
+          "operations",
+          "source_array"
+        ],
+        "outputs": [
+          "emitted"
+        ],
+        "execution_mode": "bulk",
+        "metadata": {
+          "sinks": [
+            "artifact_store",
+            "stdout"
+          ],
+          "emission_kind": "array_map"
+        },
+        "provenance": {},
+        "state_refs": [],
+        "valid": true
+      }
+    ],
+    "edges": [
+      [
+        "n1",
+        "n2"
+      ],
+      [
+        "n1",
+        "n3"
+      ],
+      [
+        "n2",
+        "n3"
+      ]
+    ],
+    "state_bindings": {
+      "length": 5,
+      "min_value": 1,
+      "max_value": 10,
+      "operation_pool": [
+        "add",
+        "subtract",
+        "multiply"
+      ],
+      "domain": "array_transformation"
+    },
+    "metadata": {
+      "strategy": "default",
+      "goals": [
+        "generate_random_mapped_array"
+      ]
+    }
+  },
+  "inventions": [],
+  "status": "success",
+  "reason_codes": [
+    "goal_satisfied"
+  ]
+}
