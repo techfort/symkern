@@ -7,6 +7,7 @@ The persisted executable artifact is the primary execution product. It is intent
 ## Architecture
 
 - `IntentCompiler`: compiles natural-language or symbolic prompts into a validated `PromptIntent`
+- `TranslatorAdapter`: optional LLM-facing adapter that translates prompts into the versioned Symkern intent contract
 - `MachineLanguage`: operation registry and plan-building primitives
 - `SymKernel`: synthesizes, executes, and persists a machine-native executable artifact
 - `Periscope`: explains the persisted artifact in a separate markdown file
@@ -18,6 +19,21 @@ pip install -e .[dev]
 symkern --prompt "Detect anomalies in a streaming signal with low false positives"
 symkern-demo
 ```
+
+To test a local model through Ollama while preserving the same validated ingress contract:
+
+```bash
+symkern \
+	--prompt "Make up an array of 20 numbers with random numbers between 0-20 following a gaussian distribution. Produce the standard deviation, mean and median." \
+	--translator ollama \
+	--ollama-model llama3.2:3b
+```
+
+The translator boundary is provider-neutral. The package now includes:
+
+- packaged JSON resources for the intent schema and ontology
+- automatic repair for invalid model translations
+- adapters for `ollama`, `openai-compatible`, and `anthropic` style APIs
 
 The CLI writes run outputs under `artifacts/`.
 

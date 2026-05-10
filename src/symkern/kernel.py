@@ -11,6 +11,7 @@ from symkern.logging import ExecutionTrace
 from symkern.machine_language import MachineLanguage
 from symkern.nodes import PlanGraph
 from symkern.prompt_layer import PromptIntent
+from symkern.skills import SkillRegistry
 
 
 @dataclass(slots=True)
@@ -28,10 +29,11 @@ class ConvergenceResult:
 
 
 class SymKernel:
-    def __init__(self, language: MachineLanguage | None = None, invention_engine: InventionEngine | None = None) -> None:
+    def __init__(self, language: MachineLanguage | None = None, invention_engine: InventionEngine | None = None, skill_registry: SkillRegistry | None = None) -> None:
         self.language = language or MachineLanguage()
         self.invention_engine = invention_engine or InventionEngine()
-        self.compiled_backends = CompiledBackendRegistry()
+        self.skill_registry = skill_registry
+        self.compiled_backends = CompiledBackendRegistry(skill_registry=skill_registry)
 
     def run(self, intent: PromptIntent, context: dict[str, object] | None = None, strategy: str = "default") -> ConvergenceResult:
         run_start_ns = perf_counter_ns()
@@ -44,6 +46,25 @@ class SymKernel:
         plan = self.language.build_plan(intent, strategy=strategy)
         timings["plan_synthesis_ns"] = perf_counter_ns() - synthesize_start_ns
         trace.record("synthesize", "Plan graph synthesized.", plan_id=plan.plan_id, nodes=len(plan.nodes))
+
+        trusted_skill_start_ns = perf_counter_ns()
+        trusted_applied: list[dict[str, object]] = []
+        if self.skill_registry is not None:
+            plan, trusted_applied = self.invention_engine.apply_trusted_skills(
+                plan,
+                self.language,
+                self.skill_registry.trusted_abstraction_skills(),
+            )
+        if trusted_applied:
+            plan.metadata["trusted_skills_applied"] = list(trusted_applied)
+            for applied in trusted_applied:
+                trace.record(
+                    "retrieve",
+                    f"Applied trusted abstraction skill opcode {applied['op_code']} during synthesis.",
+                    skill_id=applied["skill_id"],
+                    op_code=applied["op_code"],
+                )
+        timings["trusted_skill_reuse_ns"] = perf_counter_ns() - trusted_skill_start_ns
 
         backend_select_start_ns = perf_counter_ns()
         backend_candidates, backend_selection = self.compiled_backends.assess_plan(plan)
@@ -64,7 +85,7 @@ class SymKernel:
             )
         timings["backend_selection_ns"] = perf_counter_ns() - backend_select_start_ns
 
-        inventions = []
+        inventions = list(trusted_applied)
         invention_start_ns = perf_counter_ns()
         for candidate in self.invention_engine.propose(plan):
             accepted = self.invention_engine.accept(candidate, self.language)

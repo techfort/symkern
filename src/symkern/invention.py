@@ -139,6 +139,55 @@ class InventionEngine:
         candidate.accepted = True
         return candidate
 
+    def apply_trusted_skills(
+        self,
+        plan: PlanGraph,
+        language: MachineLanguage,
+        trusted_skills: list[dict[str, object]],
+    ) -> tuple[PlanGraph, list[dict[str, object]]]:
+        rewritten_plan = plan
+        applied: list[dict[str, object]] = []
+        for skill in trusted_skills:
+            source_op_codes = [int(item) for item in list(skill.get("source_op_codes", []))]
+            pattern = self._find_pattern(source_op_codes)
+            if pattern is None:
+                continue
+            matched_nodes = self._match_pattern_nodes(rewritten_plan, source_op_codes)
+            if matched_nodes is None:
+                continue
+            op_code = int(skill.get("op_code", 0))
+            self._register_trusted_pattern(language, pattern, op_code)
+            candidate = InventionCandidate(
+                op_id=pattern.op_id,
+                source_ops=list(pattern.source_ops),
+                source_op_codes=list(pattern.source_op_codes),
+                score=float(skill.get("score", pattern.score)),
+                rationale=str(skill.get("rationale", pattern.rationale)),
+                op_code=op_code,
+                accepted=True,
+                metadata=dict(pattern.metadata),
+                signature={
+                    "inputs": list(pattern.signature.get("inputs", [])),
+                    "outputs": list(pattern.signature.get("outputs", [])),
+                },
+                replacement_metadata=pattern.replacement_metadata_builder(matched_nodes),
+                metadata_projection={op_id: list(keys) for op_id, keys in pattern.metadata_projection.items()},
+                metadata_projection_codes={code: list(keys) for code, keys in pattern.metadata_projection_codes.items()},
+            )
+            rewritten_plan = self.rewrite_plan(rewritten_plan, candidate)
+            applied.append(
+                {
+                    "skill_id": str(skill.get("skill_id", "")),
+                    "op_code": op_code,
+                    "source_op_codes": list(candidate.source_op_codes),
+                    "score": candidate.score,
+                    "accepted": True,
+                    "rationale": candidate.rationale,
+                    "metadata": dict(candidate.metadata),
+                }
+            )
+        return rewritten_plan, applied
+
     def rewrite_plan(self, plan: PlanGraph, candidate: InventionCandidate) -> PlanGraph:
         matched_nodes = self._match_pattern_nodes(plan, candidate.source_op_codes)
         if matched_nodes is None:
@@ -187,6 +236,35 @@ class InventionEngine:
         for source, target in sorted(edge_set):
             rewritten.add_edge(source, target)
         return rewritten
+
+    def _register_trusted_pattern(self, language: MachineLanguage, pattern: InventionPattern, op_code: int) -> None:
+        if op_code in language.op_registry_by_code:
+            return
+        language.register(
+            OperationSchema(
+                op_id=pattern.op_id,
+                op_code=op_code,
+                signature={
+                    "inputs": list(pattern.signature.get("inputs", [])),
+                    "outputs": list(pattern.signature.get("outputs", [])),
+                },
+                machine_metadata={
+                    "invented_from": list(pattern.source_ops),
+                    "invented_from_opcodes": list(pattern.source_op_codes),
+                    "metadata_projection": {op_id: list(keys) for op_id, keys in pattern.metadata_projection.items()},
+                    "metadata_projection_codes": {str(code): list(keys) for code, keys in pattern.metadata_projection_codes.items()},
+                    **pattern.metadata,
+                },
+                handler=language._build_invented_handler(pattern.source_op_codes, pattern.metadata_projection_codes),
+                description=pattern.rationale,
+            )
+        )
+
+    def _find_pattern(self, source_op_codes: list[int]) -> InventionPattern | None:
+        for pattern in self.patterns:
+            if list(pattern.source_op_codes) == list(source_op_codes):
+                return pattern
+        return None
 
     @staticmethod
     def _match_pattern_nodes(plan: PlanGraph, source_op_codes: list[int]) -> list[Node] | None:

@@ -61,3 +61,17 @@ def test_gaussian_statistics_prompt_executes_compiled_backend(tmp_path: Path) ->
     assert len(artifact["outputs"]["source_array"]) == 8
     assert all(2 <= value <= 12 for value in artifact["outputs"]["source_array"])
     assert set(result["timings"]["node_execute_ns"].keys()) == {"n1", "n2", "n3"}
+
+
+def test_trusted_abstraction_skill_is_reused_during_synthesis(tmp_path: Path) -> None:
+    prompt = "Detect anomalies in a streaming signal with low false positives and low latency"
+
+    for _ in range(3):
+        submit_prompt(prompt, artifact_root=tmp_path)
+
+    reused = submit_prompt(prompt, artifact_root=tmp_path)
+    artifact = json.loads(Path(reused["artifact_path"]).read_text(encoding="utf-8"))
+    events = list(artifact["trace"]["events"])
+
+    assert any(event["stage"] == "retrieve" and event["payload"]["op_code"] == 1000 for event in events)
+    assert reused["backend"]["skill_registry"]["abstractions"][0]["status"] == "trusted"

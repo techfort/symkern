@@ -3,7 +3,9 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from symkern.intent_contract import SCHEMA_VERSION, SymkernIntentContract
 from symkern.prompt_layer import PromptIntent, PromptValidator
+from symkern.translator import TranslationEnvelope, TranslatorAdapter
 
 
 @dataclass(slots=True)
@@ -22,12 +24,22 @@ class IntentCompiler:
     heuristics so the end-to-end architecture remains runnable offline.
     """
 
-    def __init__(self, validator: PromptValidator | None = None) -> None:
+    def __init__(self, validator: PromptValidator | None = None, translator_adapter: TranslatorAdapter | None = None) -> None:
         self.validator = validator or PromptValidator()
+        self.contract = SymkernIntentContract(self.validator)
+        self.translator_adapter = translator_adapter
 
     def compile(self, prompt: str) -> CompilerResult:
-        raw_intent, translator = self._translate(prompt)
-        intent = self.validator.validate(raw_intent)
+        raw_payload, translator = self._translate(prompt)
+        try:
+            intent = self.contract.normalize(raw_payload)
+        except ValueError as error:
+            if self.translator_adapter is None:
+                raise
+            repaired = self.translator_adapter.repair(prompt, raw_payload, str(error))
+            raw_payload = repaired.payload
+            translator = repaired.translator
+            intent = self.contract.normalize(raw_payload)
         return CompilerResult(
             intent=intent,
             assumptions=intent.assumptions,
@@ -36,16 +48,19 @@ class IntentCompiler:
             translator=translator,
         )
 
-    def _translate(self, prompt: str) -> tuple[PromptIntent, str]:
+    def _translate(self, prompt: str) -> tuple[dict[str, object], str]:
         text = prompt.strip()
         if not text:
             raise ValueError("Prompt cannot be empty")
 
+        if self.translator_adapter is not None:
+            translated = self.translator_adapter.translate(text)
+            return translated.payload, translated.translator
         if any(marker in text for marker in ("→Ω", "Δ", "◐", "⟐")):
             return self._parse_symbolic(text), "symbolic"
         return self._heuristic_natural_language(text), "mock-llm"
 
-    def _parse_symbolic(self, prompt: str) -> PromptIntent:
+    def _parse_symbolic(self, prompt: str) -> dict[str, object]:
         goals: list[str] = []
         constraints: list[str] = []
         sinks: list[str] = []
@@ -70,17 +85,19 @@ class IntentCompiler:
             else:
                 preferences.append(line)
 
-        return PromptIntent(
-            goals=goals,
-            constraints=constraints,
-            preferences=preferences,
-            state=state,
-            sinks=sinks or ["stdout"],
-            assumptions=["Symbolic prompt parsed without external translator."],
-            confidence=0.92,
-        )
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "goals": goals,
+            "constraints": constraints,
+            "preferences": preferences,
+            "state": state,
+            "sinks": sinks or ["stdout"],
+            "assumptions": ["Symbolic prompt parsed without external translator."],
+            "missing_information": [],
+            "confidence": 0.92,
+        }
 
-    def _heuristic_natural_language(self, prompt: str) -> PromptIntent:
+    def _heuristic_natural_language(self, prompt: str) -> dict[str, object]:
         lower = prompt.lower()
         constraints: list[str] = []
         preferences: list[str] = []
@@ -120,16 +137,17 @@ class IntentCompiler:
             goals = [prompt.rstrip(".")]
             missing_information.append("No domain-specific planner matched the prompt; using generic plan synthesis.")
 
-        return PromptIntent(
-            goals=goals,
-            constraints=constraints,
-            preferences=preferences,
-            state=state,
-            sinks=sinks,
-            assumptions=assumptions,
-            missing_information=missing_information,
-            confidence=0.78 if missing_information else 0.9,
-        )
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "goals": goals,
+            "constraints": constraints,
+            "preferences": preferences,
+            "state": state,
+            "sinks": sinks,
+            "assumptions": assumptions,
+            "missing_information": missing_information,
+            "confidence": 0.78 if missing_information else 0.9,
+        }
 
     @staticmethod
     def _extract_array_generation_state(prompt: str) -> dict[str, object]:

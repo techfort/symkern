@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from symkern.artifacts import ArtifactBundle, ArtifactStore
@@ -7,6 +8,7 @@ from symkern.logging import ExecutionTrace
 from symkern.machine_code import CODE_MAGIC, LEXICON_MAGIC, SYMBOLS_MAGIC
 from symkern.nodes import PlanGraph
 from symkern.prompt_layer import PromptIntent
+from symkern.skills import SkillRegistry
 from symkern.streaming import synthetic_anomaly_stream
 
 
@@ -256,3 +258,84 @@ def test_submitted_artifact_persists_timings(tmp_path: Path) -> None:
     assert set(artifact["timings"]["node_execute_ns"].keys()) == {"n1", "n2", "n3"}
     assert Path(artifact["backend"]["artifacts"]["backend_source"]).exists()
     assert Path(artifact["backend"]["artifacts"]["backend_binary"]).exists()
+
+
+def test_successful_backend_run_updates_local_skill_registry(tmp_path: Path) -> None:
+    submitted = submit_prompt(
+        "Make up an array of 20 numbers with random numbers between 0-20 following a gaussian distribution. Produce the standard deviation, mean and median.",
+        artifact_root=tmp_path,
+    )
+
+    registry_path = tmp_path / ".symkern" / "skills" / "registry.json"
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    skills = dict(registry["skills"])
+    entry = next(iter(skills.values()))
+
+    assert registry["schema_version"] == "symkern.skill-registry/v1alpha1"
+    assert entry["target"] == "c.gaussian_array_statistics"
+    assert entry["status"] == "experimental"
+    assert entry["selection_count"] == 1
+    assert entry["success_count"] == 1
+    assert entry["mean_execute_ns"] > 0
+    assert entry["active_reference_count"] == 1
+    assert entry["executable_references"][0]["machine_code_path"] == submitted["machine_code_path"]
+    assert submitted["backend"]["skill"]["registry_path"] == str(registry_path)
+
+
+def test_skill_is_retired_when_no_executable_references_remain(tmp_path: Path) -> None:
+    submitted = submit_prompt(
+        "Make up an array of 20 numbers with random numbers between 0-20 following a gaussian distribution. Produce the standard deviation, mean and median.",
+        artifact_root=tmp_path,
+    )
+
+    Path(submitted["machine_code_path"]).unlink()
+
+    SkillRegistry(tmp_path).reconcile_executable_references()
+
+    registry_path = tmp_path / ".symkern" / "skills" / "registry.json"
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    skills = dict(registry["skills"])
+    entry = next(iter(skills.values()))
+
+    assert entry["active_reference_count"] == 0
+    assert entry["status"] == "retired"
+
+
+def test_invented_abstraction_is_recorded_as_local_skill(tmp_path: Path) -> None:
+    submitted = submit_prompt(
+        "Detect anomalies in a streaming signal with low false positives and low latency",
+        artifact_root=tmp_path,
+    )
+
+    registry_path = tmp_path / ".symkern" / "skills" / "registry.json"
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    abstraction_entries = [entry for entry in dict(registry["skills"]).values() if entry["kind"] == "abstraction"]
+
+    assert len(abstraction_entries) == 1
+    entry = abstraction_entries[0]
+    assert entry["op_code"] == 1000
+    assert entry["source_op_codes"] == [103, 104]
+    assert entry["application_count"] == 1
+    assert entry["active_reference_count"] == 1
+    assert entry["status"] == "experimental"
+    assert entry["executable_references"][0]["machine_code_path"] == submitted["machine_code_path"]
+
+
+def test_invented_abstraction_is_retired_when_no_executable_references_remain(tmp_path: Path) -> None:
+    submitted = submit_prompt(
+        "Detect anomalies in a streaming signal with low false positives and low latency",
+        artifact_root=tmp_path,
+    )
+
+    Path(submitted["machine_code_path"]).unlink()
+
+    SkillRegistry(tmp_path).reconcile_executable_references()
+
+    registry_path = tmp_path / ".symkern" / "skills" / "registry.json"
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    abstraction_entries = [entry for entry in dict(registry["skills"]).values() if entry["kind"] == "abstraction"]
+
+    assert len(abstraction_entries) == 1
+    entry = abstraction_entries[0]
+    assert entry["active_reference_count"] == 0
+    assert entry["status"] == "retired"
