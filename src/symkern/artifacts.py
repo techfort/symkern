@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -23,6 +24,7 @@ class ArtifactBundle:
     files: dict[str, str] = field(default_factory=dict)
     language_snapshot: dict[str, object] = field(default_factory=dict)
     timings: dict[str, object] = field(default_factory=dict)
+    backend: dict[str, object] = field(default_factory=dict)
 
     def machine_language_dict(self) -> dict[str, object]:
         if self.language_snapshot:
@@ -51,6 +53,7 @@ class ArtifactBundle:
             "compiler": dict(self.compiler),
             "files": dict(self.files),
             "timings": dict(self.timings),
+            "backend": dict(self.backend),
         }
 
 
@@ -94,6 +97,23 @@ class ArtifactStore:
         periscope_path = run_dir / "periscope.md"
         periscope_path.write_text(content, encoding="utf-8")
         return periscope_path
+
+    def save_backend_artifacts(self, bundle: ArtifactBundle) -> dict[str, str]:
+        generated_files = dict(bundle.backend.get("generated_files", {}))
+        if not generated_files:
+            return {}
+
+        run_dir = self.root / bundle.run_id / "backend"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        persisted: dict[str, str] = {}
+        for name, path_str in generated_files.items():
+            source_path = Path(path_str)
+            if not source_path.exists():
+                continue
+            destination = run_dir / source_path.name
+            shutil.copy2(source_path, destination)
+            persisted[name] = str(destination)
+        return persisted
 
     def load_machine_artifact(self, path: str | Path) -> dict[str, object]:
         return json.loads(Path(path).read_text(encoding="utf-8"))

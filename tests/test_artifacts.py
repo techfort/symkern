@@ -204,6 +204,7 @@ def test_machine_code_explain_command_writes_periscope_without_exposing_symbols(
     assert "## Reconstructed Strategy" in periscope_text
     assert "## Machine Intent Narrative" in periscope_text
     assert "## Machine Abstractions" in periscope_text
+    assert "## Backend Selection" in periscope_text
     assert "## Performance" in periscope_text
     assert "compresses source opcodes" in periscope_text
     assert "conservative anomaly envelope" in periscope_text
@@ -244,10 +245,14 @@ def test_submitted_artifact_persists_timings(tmp_path: Path) -> None:
     artifact = ArtifactStore(tmp_path).load_machine_artifact(submitted["artifact_path"])
 
     assert "timings" in artifact
+    assert artifact["backend"]["selection"]["target"] == "c.gaussian_array_statistics"
     assert artifact["timings"]["compile_ns"] > 0
     assert artifact["timings"]["converge_ns"] > 0
     assert artifact["timings"]["execute_ns"] > 0
+    assert artifact["timings"]["persist_backend_artifacts_ns"] > 0
     assert artifact["timings"]["persist_periscope_render_ns"] > 0
     assert artifact["timings"]["persist_total_ns"] > 0
     assert artifact["timings"]["submit_total_ns"] > 0
     assert set(artifact["timings"]["node_execute_ns"].keys()) == {"n1", "n2", "n3"}
+    assert Path(artifact["backend"]["artifacts"]["backend_source"]).exists()
+    assert Path(artifact["backend"]["artifacts"]["backend_binary"]).exists()

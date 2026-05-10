@@ -45,3 +45,19 @@ def test_gaussian_statistics_prompt_creates_artifact_with_statistics(tmp_path: P
     assert len(outputs["source_array"]) == 20
     assert all(0 <= value <= 20 for value in outputs["source_array"])
     assert set(outputs["statistics"].keys()) == {"standard_deviation", "mean", "median"}
+    assert result["timings"]["compiled_backend_target"] == "c.gaussian_array_statistics"
+
+
+def test_gaussian_statistics_prompt_executes_compiled_backend(tmp_path: Path) -> None:
+    result = submit_prompt(
+        "Make up an array of 8 numbers with random numbers between 2-12 following a gaussian distribution. Produce the standard deviation, mean and median.",
+        artifact_root=tmp_path,
+    )
+
+    artifact = json.loads(Path(result["artifact_path"]).read_text(encoding="utf-8"))
+
+    assert result["status"] == "success"
+    assert result["timings"]["compiled_backend_target"] == "c.gaussian_array_statistics"
+    assert len(artifact["outputs"]["source_array"]) == 8
+    assert all(2 <= value <= 12 for value in artifact["outputs"]["source_array"])
+    assert set(result["timings"]["node_execute_ns"].keys()) == {"n1", "n2", "n3"}

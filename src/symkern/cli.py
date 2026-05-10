@@ -23,6 +23,13 @@ def _persist_bundle(bundle, artifact_root: str | Path) -> dict[str, object]:
     store = ArtifactStore(artifact_root)
     persist_start_ns = perf_counter_ns()
 
+    backend_write_start_ns = perf_counter_ns()
+    backend_files = store.save_backend_artifacts(bundle)
+    bundle.timings["persist_backend_artifacts_ns"] = perf_counter_ns() - backend_write_start_ns
+    if backend_files:
+        bundle.backend["artifacts"] = dict(backend_files)
+        bundle.files.update(dict(backend_files))
+
     machine_code_start_ns = perf_counter_ns()
     machine_code_path, dictionary_path = store.save_machine_code(bundle)
     bundle.timings["persist_machine_code_ns"] = perf_counter_ns() - machine_code_start_ns
@@ -58,6 +65,7 @@ def _persist_bundle(bundle, artifact_root: str | Path) -> dict[str, object]:
         "plan_view": render_plan_graph(bundle.plan),
         "outputs": bundle.outputs,
         "timings": dict(bundle.timings),
+        "backend": dict(bundle.backend),
     }
 
 

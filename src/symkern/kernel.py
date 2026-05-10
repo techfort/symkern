@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from time import perf_counter_ns
 
 from symkern.artifacts import ArtifactBundle, ArtifactStore
+from symkern.compiled_backend import CompiledBackendRegistry
 from symkern.invention import InventionEngine
 from symkern.logging import ExecutionTrace
 from symkern.machine_language import MachineLanguage
@@ -23,12 +24,14 @@ class ConvergenceResult:
     score: float = 0.0
     language_snapshot: dict[str, object] = field(default_factory=dict)
     timings: dict[str, object] = field(default_factory=dict)
+    backend: dict[str, object] = field(default_factory=dict)
 
 
 class SymKernel:
     def __init__(self, language: MachineLanguage | None = None, invention_engine: InventionEngine | None = None) -> None:
         self.language = language or MachineLanguage()
         self.invention_engine = invention_engine or InventionEngine()
+        self.compiled_backends = CompiledBackendRegistry()
 
     def run(self, intent: PromptIntent, context: dict[str, object] | None = None, strategy: str = "default") -> ConvergenceResult:
         run_start_ns = perf_counter_ns()
@@ -41,6 +44,25 @@ class SymKernel:
         plan = self.language.build_plan(intent, strategy=strategy)
         timings["plan_synthesis_ns"] = perf_counter_ns() - synthesize_start_ns
         trace.record("synthesize", "Plan graph synthesized.", plan_id=plan.plan_id, nodes=len(plan.nodes))
+
+        backend_select_start_ns = perf_counter_ns()
+        backend_candidates, backend_selection = self.compiled_backends.assess_plan(plan)
+        backend: dict[str, object] = {
+            "candidates": [candidate.to_dict() for candidate in backend_candidates],
+            "selection": backend_selection.to_dict() if backend_selection is not None else {},
+            "generated_files": {},
+        }
+        plan.metadata["backend_candidates"] = list(backend["candidates"])
+        if backend_selection is not None:
+            plan.metadata["selected_backend"] = dict(backend["selection"])
+            trace.record(
+                "optimize",
+                f"Selected backend {backend_selection.target} for slice {', '.join(backend_selection.slice_node_ids)}.",
+                backend_target=backend_selection.target,
+                estimated_interpreted_ns=backend_selection.estimated_interpreted_ns,
+                estimated_compiled_ns=backend_selection.estimated_compiled_ns,
+            )
+        timings["backend_selection_ns"] = perf_counter_ns() - backend_select_start_ns
 
         inventions = []
         invention_start_ns = perf_counter_ns()
@@ -61,7 +83,7 @@ class SymKernel:
             trace.record("rewrite", f"Plan rewritten to use opcode {accepted.op_code}.", op_code=accepted.op_code, plan_id=plan.plan_id)
         timings["invention_ns"] = perf_counter_ns() - invention_start_ns
 
-        outputs = self._execute_plan(plan, working_context, trace, timings=timings)
+        outputs = self._execute_plan(plan, working_context, trace, timings=timings, backend=backend)
 
         reason_codes = ["goal_satisfied"] if outputs else ["no_outputs"]
         score = self._score(outputs, intent, strategy)
@@ -78,6 +100,7 @@ class SymKernel:
             score=score,
             language_snapshot=self.language.snapshot_for_plan(plan, inventions),
             timings=timings,
+            backend=backend,
         )
 
     def replay_language(self, language_document: dict[str, object], context: dict[str, object] | None = None) -> ConvergenceResult:
@@ -96,7 +119,16 @@ class SymKernel:
         timings["replay_prepare_ns"] = perf_counter_ns() - prepare_start_ns
         trace = ExecutionTrace()
         trace.record("replay", "Loaded persisted machine language.", plan_id=plan.plan_id)
-        outputs = self._execute_plan(plan, dict(context or {}), trace, language=language, timings=timings)
+        backend: dict[str, object] = {
+            "candidates": list(plan.metadata.get("backend_candidates", [])),
+            "selection": dict(plan.metadata.get("selected_backend", {})),
+            "generated_files": {},
+        }
+        if not backend["candidates"]:
+            backend_candidates, backend_selection = self.compiled_backends.assess_plan(plan)
+            backend["candidates"] = [candidate.to_dict() for candidate in backend_candidates]
+            backend["selection"] = backend_selection.to_dict() if backend_selection is not None else {}
+        outputs = self._execute_plan(plan, dict(context or {}), trace, language=language, timings=timings, backend=backend)
         status = "success" if outputs else "impossible"
         reason_codes = ["goal_satisfied"] if outputs else ["no_outputs"]
         timings["kernel_total_ns"] = perf_counter_ns() - replay_start_ns
@@ -111,6 +143,7 @@ class SymKernel:
             score=0.7 if outputs else 0.0,
             language_snapshot=dict(language_document),
             timings=timings,
+            backend=backend,
         )
 
     def _execute_plan(
@@ -120,12 +153,39 @@ class SymKernel:
         trace: ExecutionTrace,
         language: MachineLanguage | None = None,
         timings: dict[str, object] | None = None,
+        backend: dict[str, object] | None = None,
     ) -> dict[str, object]:
         runtime_language = language or self.language
         working_context = dict(context)
+        selection = dict((backend or {}).get("selection", {}))
+        selected_slice_node_ids = list(selection.get("slice_node_ids", []))
         outputs: dict[str, object] = {}
         node_timings: dict[str, int] = {}
-        for node in plan.ordered_nodes():
+        ordered_nodes = plan.ordered_nodes()
+        skip_node_ids: set[str] = set()
+        for node in ordered_nodes:
+            if node.node_id in skip_node_ids:
+                continue
+            if selection and selected_slice_node_ids and node.node_id == selected_slice_node_ids[0]:
+                compiled_result = self.compiled_backends.execute(plan, selection, working_context)
+                if compiled_result is not None:
+                    working_context.update(compiled_result.outputs)
+                    outputs.update(compiled_result.outputs)
+                    node_timings.update(compiled_result.node_timings_ns)
+                    skip_node_ids.update(selected_slice_node_ids)
+                    if timings is not None:
+                        timings["compiled_backend_target"] = compiled_result.target
+                    if backend is not None:
+                        backend["generated_files"] = dict(compiled_result.generated_files)
+                    trace.record(
+                        "execute",
+                        f"Executed compiled backend {compiled_result.target}.",
+                        backend_target=compiled_result.target,
+                        slice_node_ids=selected_slice_node_ids,
+                        produced=list(compiled_result.outputs.keys()),
+                        duration_ns=int(compiled_result.total_ns),
+                    )
+                    continue
             node_start_ns = perf_counter_ns()
             result = runtime_language.execute_node(node, working_context)
             duration_ns = perf_counter_ns() - node_start_ns
@@ -181,4 +241,5 @@ def build_bundle(
         compiler=compiler_meta,
         language_snapshot=convergence.language_snapshot,
         timings=dict(timings or convergence.timings),
+        backend=dict(convergence.backend),
     )

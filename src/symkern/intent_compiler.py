@@ -100,6 +100,11 @@ class IntentCompiler:
             goals = ["detect_stream_anomalies"]
             state["domain"] = "stream_anomaly_detection"
             state["window_size"] = 5
+        elif all(token in lower for token in ("historical dates", "wikipedia", "deaths", "illustrious")):
+            goals = ["elect_illustrious_historical_death"]
+            state.update(self._extract_historical_death_state(lower))
+            state["domain"] = "historical_wikipedia_lookup"
+            assumptions.append("Wikipedia on-this-day death entries are used as the source of candidate deaths.")
         elif "array" in lower and ("gaussian" in lower or "normal distribution" in lower) and any(
             token in lower for token in ("standard deviation", "std deviation", "mean", "median")
         ):
@@ -159,4 +164,16 @@ class IntentCompiler:
             "max_value": int(base["max_value"]),
             "distribution": "gaussian",
             "requested_statistics": ["standard_deviation", "mean", "median"],
+        }
+
+    @staticmethod
+    def _extract_historical_death_state(prompt: str) -> dict[str, object]:
+        count = 3
+        count_match = re.search(r"(\d+)\s+historical\s+dates", prompt)
+        if count_match:
+            count = int(count_match.group(1))
+        return {
+            "date_count": count,
+            "lookup_source": "wikipedia.org",
+            "selection_goal": "most_illustrious_death",
         }

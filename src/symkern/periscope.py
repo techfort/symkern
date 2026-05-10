@@ -43,6 +43,8 @@ class Periscope:
                 *input_lines,
                 "## Outputs",
                 *output_lines,
+                "## Backend Selection",
+                *self._describe_backend(bundle),
                 "## Performance",
                 *self._describe_performance(bundle),
                 "## Reconstructed Strategy",
@@ -131,6 +133,36 @@ class Periscope:
         lines = []
         for name, value in bundle.outputs.items():
             lines.append(f"- Output `{name}` = {limited_repr(value)}")
+        return lines
+
+    @staticmethod
+    def _describe_backend(bundle: ArtifactBundle) -> list[str]:
+        backend = dict(bundle.backend)
+        selection = dict(backend.get("selection", {}))
+        candidates = list(backend.get("candidates", []))
+        artifacts = dict(backend.get("artifacts", {}))
+        if not selection and not candidates:
+            return ["- No compiled backend candidates were considered for this run."]
+
+        lines: list[str] = []
+        if selection:
+            lines.append(
+                f"- Selected backend `{selection.get('target', 'unknown')}` for slice {', '.join(selection.get('slice_node_ids', [])) or 'none'}."
+            )
+            lines.append(
+                f"- Estimated interpreted cost: {Periscope._format_ns(int(selection.get('estimated_interpreted_ns', 0)))}; estimated compiled cost: {Periscope._format_ns(int(selection.get('estimated_compiled_ns', 0)))}."
+            )
+            lines.append(f"- Selection reason: {selection.get('selection_reason', 'none')}" )
+        if candidates:
+            lines.append(
+                "- Candidate backends: "
+                + "; ".join(
+                    f"{item.get('target', 'unknown')}[{', '.join(item.get('slice_node_ids', []))}]"
+                    for item in candidates
+                )
+            )
+        if artifacts:
+            lines.extend(f"- Backend artifact `{name}` saved to `{path}`." for name, path in artifacts.items())
         return lines
 
     @staticmethod

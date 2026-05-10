@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
 import random
+import urllib.error
+import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from statistics import mean, median, pstdev
@@ -45,6 +48,9 @@ class MachineLanguage:
         "core.random_math_map": 202,
         "core.generate_gaussian_array": 203,
         "core.compute_array_statistics": 204,
+        "core.generate_historical_dates": 205,
+        "core.lookup_wikipedia_deaths": 206,
+        "core.elect_illustrious_death": 207,
     }
     INVENTED_OPCODE_START = 1000
 
@@ -142,6 +148,36 @@ class MachineLanguage:
                 machine_metadata={"category": "analytics"},
                 handler=self._op_compute_array_statistics,
                 description="Compute summary statistics for a numeric array.",
+            )
+        )
+        self.register(
+            OperationSchema(
+                op_id="core.generate_historical_dates",
+                op_code=self.BUILTIN_OPCODES["core.generate_historical_dates"],
+                signature={"inputs": [], "outputs": ["historical_dates"]},
+                machine_metadata={"category": "planning"},
+                handler=self._op_generate_historical_dates,
+                description="Generate candidate historical dates for downstream lookup.",
+            )
+        )
+        self.register(
+            OperationSchema(
+                op_id="core.lookup_wikipedia_deaths",
+                op_code=self.BUILTIN_OPCODES["core.lookup_wikipedia_deaths"],
+                signature={"inputs": ["historical_dates"], "outputs": ["death_candidates", "death_candidate_features"]},
+                machine_metadata={"category": "lookup"},
+                handler=self._op_lookup_wikipedia_deaths,
+                description="Lookup Wikipedia death entries for each historical date and derive candidate features.",
+            )
+        )
+        self.register(
+            OperationSchema(
+                op_id="core.elect_illustrious_death",
+                op_code=self.BUILTIN_OPCODES["core.elect_illustrious_death"],
+                signature={"inputs": ["death_candidate_features"], "outputs": ["selected_death"]},
+                machine_metadata={"category": "decision"},
+                handler=self._op_elect_illustrious_death,
+                description="Select the most illustrious death candidate using derived feature scores.",
             )
         )
 
@@ -288,6 +324,42 @@ class MachineLanguage:
                 plan.add_edge(source, target)
             return plan
 
+        if any(goal == "elect_illustrious_historical_death" for goal in intent.goals):
+            nodes = [
+                Node(
+                    "n1",
+                    op_code=self.BUILTIN_OPCODES["core.generate_historical_dates"],
+                    outputs=["historical_dates"],
+                    metadata={"date_count": intent.state.get("date_count", 3)},
+                ),
+                Node(
+                    "n2",
+                    op_code=self.BUILTIN_OPCODES["core.lookup_wikipedia_deaths"],
+                    inputs=["historical_dates"],
+                    outputs=["death_candidates", "death_candidate_features"],
+                    metadata={"lookup_source": intent.state.get("lookup_source", "wikipedia.org")},
+                ),
+                Node(
+                    "n3",
+                    op_code=self.BUILTIN_OPCODES["core.elect_illustrious_death"],
+                    inputs=["death_candidate_features"],
+                    outputs=["selected_death"],
+                    metadata={"selection_goal": intent.state.get("selection_goal", "most_illustrious_death")},
+                ),
+                Node(
+                    "n4",
+                    op_code=self.BUILTIN_OPCODES["core.emit_sink"],
+                    inputs=["historical_dates", "death_candidates", "selected_death"],
+                    outputs=["emitted"],
+                    metadata={"sinks": intent.sinks, "emission_kind": "historical_death_election"},
+                ),
+            ]
+            for node in nodes:
+                plan.add_node(node)
+            for source, target in (("n1", "n2"), ("n2", "n3"), ("n1", "n4"), ("n2", "n4"), ("n3", "n4")):
+                plan.add_edge(source, target)
+            return plan
+
         plan.add_node(Node("n1", op_code=self.BUILTIN_OPCODES["core.emit_sink"], outputs=["emitted"], metadata={"sinks": intent.sinks, "message": intent.goals[0]}))
         return plan
 
@@ -392,6 +464,15 @@ class MachineLanguage:
                     "sinks": node.metadata.get("sinks", []),
                 }
             }
+        if node.metadata.get("emission_kind") == "historical_death_election":
+            return {
+                "emitted": {
+                    "historical_dates": list(context.get("historical_dates", [])),
+                    "death_candidates": list(context.get("death_candidates", [])),
+                    "selected_death": dict(context.get("selected_death", {})),
+                    "sinks": node.metadata.get("sinks", []),
+                }
+            }
         if "message" in node.metadata:
             return {"emitted": {"message": node.metadata["message"], "sinks": node.metadata.get("sinks", [])}}
         return {"emitted": {"detections": list(context.get("detections", [])), "sinks": node.metadata.get("sinks", [])}}
@@ -458,3 +539,132 @@ class MachineLanguage:
         if "median" in requested:
             statistics["median"] = round(median(values), 4)
         return {"statistics": statistics}
+
+    @staticmethod
+    def _op_generate_historical_dates(node: Node, context: dict[str, object]) -> dict[str, object]:
+        if "historical_dates" in context:
+            return {"historical_dates": list(context.get("historical_dates", []))}
+
+        seed = int(context.get("seed", 17))
+        generator = random.Random(seed)
+        date_count = int(node.metadata.get("date_count", 3))
+        month_lengths = {1: 31, 2: 28, 3: 31, 4: 30, 5: 31, 6: 30, 7: 31, 8: 31, 9: 30, 10: 31, 11: 30, 12: 31}
+        historical_dates: list[dict[str, object]] = []
+        seen: set[str] = set()
+        while len(historical_dates) < date_count:
+            year = generator.randint(1600, 2015)
+            month = generator.randint(1, 12)
+            day = generator.randint(1, month_lengths[month])
+            label = f"{year:04d}-{month:02d}-{day:02d}"
+            if label in seen:
+                continue
+            seen.add(label)
+            historical_dates.append({"year": year, "month": month, "day": day, "label": label})
+        return {"historical_dates": historical_dates}
+
+    @staticmethod
+    def _op_lookup_wikipedia_deaths(node: Node, context: dict[str, object]) -> dict[str, object]:
+        historical_dates = list(context.get("historical_dates", []))
+        lookup_override = dict(context.get("historical_death_lookup", {}))
+        candidates: list[dict[str, object]] = []
+        candidate_features: list[dict[str, object]] = []
+        keyword_weights = [
+            "president", "prime minister", "king", "queen", "emperor", "pope", "saint", "scientist",
+            "mathematician", "physicist", "writer", "poet", "composer", "artist", "philosopher", "general",
+            "explorer", "inventor", "nobel", "actor",
+        ]
+
+        for item in historical_dates:
+            label = str(item.get("label", ""))
+            if label in lookup_override:
+                date_candidates = list(lookup_override[label])
+            else:
+                date_candidates = MachineLanguage._fetch_wikipedia_deaths_for_date(int(item.get("month", 1)), int(item.get("day", 1)), label)
+            for candidate in date_candidates:
+                person = str(candidate.get("person", ""))
+                description = str(candidate.get("description", ""))
+                combined = f"{person} {description}".lower()
+                keyword_hits = sum(1 for keyword in keyword_weights if keyword in combined)
+                feature = {
+                    "candidate_id": f"{label}:{person}",
+                    "person": person,
+                    "date": label,
+                    "year": int(candidate.get("year", 0)),
+                    "description": description,
+                    "wikipedia_url": str(candidate.get("wikipedia_url", "")),
+                    "page_count": int(candidate.get("page_count", 1)),
+                    "description_length": len(description),
+                    "keyword_hits": keyword_hits,
+                    "era_bonus": max(0, min(10, (1950 - int(candidate.get("year", 0))) // 50 + 2)),
+                }
+                candidates.append(
+                    {
+                        "candidate_id": feature["candidate_id"],
+                        "person": person,
+                        "date": label,
+                        "year": feature["year"],
+                        "description": description,
+                        "wikipedia_url": feature["wikipedia_url"],
+                    }
+                )
+                candidate_features.append(feature)
+
+        return {"death_candidates": candidates, "death_candidate_features": candidate_features}
+
+    @staticmethod
+    def _fetch_wikipedia_deaths_for_date(month: int, day: int, label: str) -> list[dict[str, object]]:
+        request = urllib.request.Request(
+            url=f"https://en.wikipedia.org/api/rest_v1/feed/onthisday/deaths/{month}/{day}",
+            headers={"User-Agent": "symkern/0.1 (prototype)"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+            return []
+
+        results: list[dict[str, object]] = []
+        for raw_entry in list(payload.get("deaths", []))[:12]:
+            pages = list(raw_entry.get("pages", []))
+            if not pages:
+                continue
+            page = pages[0]
+            person = str(page.get("titles", {}).get("normalized") or page.get("title") or raw_entry.get("text", ""))
+            description = str(page.get("description") or raw_entry.get("text") or "")
+            results.append(
+                {
+                    "person": person,
+                    "year": int(raw_entry.get("year", 0)),
+                    "description": description,
+                    "wikipedia_url": str(page.get("content_urls", {}).get("desktop", {}).get("page", "")),
+                    "page_count": len(pages),
+                    "date": label,
+                }
+            )
+        return results
+
+    @staticmethod
+    def _op_elect_illustrious_death(node: Node, context: dict[str, object]) -> dict[str, object]:
+        features = list(context.get("death_candidate_features", []))
+        if not features:
+            return {"selected_death": {}}
+        ranked = max(features, key=MachineLanguage._illustrious_score)
+        return {
+            "selected_death": {
+                "candidate_id": ranked.get("candidate_id", ""),
+                "person": ranked.get("person", ""),
+                "date": ranked.get("date", ""),
+                "year": ranked.get("year", 0),
+                "description": ranked.get("description", ""),
+                "wikipedia_url": ranked.get("wikipedia_url", ""),
+                "illustrious_score": MachineLanguage._illustrious_score(ranked),
+            }
+        }
+
+    @staticmethod
+    def _illustrious_score(feature: dict[str, object]) -> int:
+        keyword_hits = int(feature.get("keyword_hits", 0))
+        description_length = int(feature.get("description_length", 0))
+        page_count = int(feature.get("page_count", 1))
+        era_bonus = int(feature.get("era_bonus", 0))
+        return (keyword_hits * 1000) + (page_count * 125) + description_length + (era_bonus * 40)
