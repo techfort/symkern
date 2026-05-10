@@ -1,0 +1,62 @@
+{
+  "schema_version": "symkern.intent/v1alpha1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "goals",
+    "constraints",
+    "preferences",
+    "state",
+    "sinks",
+    "assumptions",
+    "missing_information",
+    "confidence"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string"
+    },
+    "goals": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "constraints": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "preferences": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "state": {
+      "type": "object"
+    },
+    "sinks": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "assumptions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "missing_information": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "confidence": {
+      "type": "number"
+    }
+  }
+}

@@ -1,0 +1,92 @@
+{
+  "prompt": "Make up an array of 20 numbers with random numbers between 0-20 following a gaussian distribution. Produce the standard deviation, mean and median.",
+  "iterations": 20,
+  "warmup": 5,
+  "symkern_core_subprocess": {
+    "iterations": 20,
+    "min_ns": 85833107,
+    "max_ns": 105349411,
+    "mean_ns": 93896746.95,
+    "median_ns": 93168036.5,
+    "stdev_ns": 4844743.79
+  },
+  "symkern_cli": {
+    "iterations": 20,
+    "min_ns": 89992801,
+    "max_ns": 107067373,
+    "mean_ns": 99888844.8,
+    "median_ns": 99905052.5,
+    "stdev_ns": 4860006.78
+  },
+  "c_core": {
+    "iterations": 20,
+    "min_ns": 899382,
+    "max_ns": 1889456,
+    "mean_ns": 1263987.85,
+    "median_ns": 1176205.5,
+    "stdev_ns": 314719.64
+  },
+  "c_artifact": {
+    "iterations": 20,
+    "min_ns": 1654341,
+    "max_ns": 5446801,
+    "mean_ns": 2878897.1,
+    "median_ns": 2636638.0,
+    "stdev_ns": 995750.7
+  },
+  "phase_samples": {
+    "symkern_core_subprocess": {
+      "plan_synthesis_ns": 24663,
+      "backend_selection_ns": 28984,
+      "invention_ns": 17170,
+      "compiled_backend_target": "c.gaussian_array_statistics",
+      "node_execute_ns": {
+        "n1": 34933,
+        "n2": 4098,
+        "n3": 8970
+      },
+      "execute_ns": 48001,
+      "kernel_total_ns": 3037892,
+      "compile_ns": 292847,
+      "converge_ns": 3273984,
+      "core_total_ns": 3570326
+    },
+    "symkern_cli": {
+      "plan_synthesis_ns": 35306,
+      "backend_selection_ns": 36353,
+      "invention_ns": 106702,
+      "compiled_backend_target": "c.gaussian_array_statistics",
+      "node_execute_ns": {
+        "n1": 29717,
+        "n2": 3996,
+        "n3": 9606
+      },
+      "execute_ns": 43319,
+      "kernel_total_ns": 2858923,
+      "compile_ns": 312131,
+      "converge_ns": 3188882,
+      "persist_backend_artifacts_ns": 1416293,
+      "persist_machine_code_ns": 1181562,
+      "persist_artifact_initial_ns": 363247,
+      "persist_periscope_render_ns": 195237,
+      "persist_periscope_ns": 127523,
+      "persist_total_ns": 3573428,
+      "persist_artifact_final_ns": 276506,
+      "submit_total_ns": 7259303
+    },
+    "c_artifact": {
+      "generate_ns": 16626,
+      "statistics_ns": 3742,
+      "persist_ns": 218643,
+      "total_ns": 255466
+    }
+  },
+  "comparison": {
+    "symkern_core_subprocess_mean_ms": 93.8967,
+    "symkern_cli_mean_ms": 99.8888,
+    "c_core_mean_ms": 1.264,
+    "c_artifact_mean_ms": 2.8789,
+    "c_core_vs_symkern_core_subprocess_speedup": 74.29,
+    "c_artifact_vs_symkern_cli_speedup": 34.7
+  }
+}

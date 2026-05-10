@@ -1,0 +1,60 @@
+{
+  "schema_version": "symkern.skill-registry/v1alpha1",
+  "skills": {
+    "skill.c_gaussian_array_statistics.generate_gaussian_array_statistics.203-204": {
+      "skill_id": "skill.c_gaussian_array_statistics.generate_gaussian_array_statistics.203-204",
+      "name": "gaussian_array_statistics",
+      "kind": "backend",
+      "target": "c.gaussian_array_statistics",
+      "slice_signature": {
+        "op_codes": [
+          203,
+          204
+        ],
+        "goals": [
+          "generate_gaussian_array_statistics"
+        ]
+      },
+      "ideal_for": [
+        "generate_gaussian_array_statistics"
+      ],
+      "selection": {
+        "target": "c.gaussian_array_statistics",
+        "slice_node_ids": [
+          "n1",
+          "n2"
+        ],
+        "estimated_interpreted_ns": 1350000,
+        "estimated_compiled_ns": 250000,
+        "selection_reason": "Selected the backend with the lowest estimated execution cost for the numeric slice."
+      },
+      "selection_count": 1,
+      "success_count": 1,
+      "total_execute_ns": 25648,
+      "mean_execute_ns": 25648,
+      "last_execute_ns": 25648,
+      "active_reference_count": 1,
+      "status": "experimental",
+      "artifact_examples": [
+        {
+          "backend_source": "artifacts/run-20260510T182713462134Z/backend/c_gaussian_array_statistics_plan-default.c",
+          "backend_binary": "artifacts/run-20260510T182713462134Z/backend/c_gaussian_array_statistics_plan-default"
+        }
+      ],
+      "executable_references": [
+        {
+          "run_id": "run-20260510T182713462134Z",
+          "machine_code_path": "artifacts/run-20260510T182713462134Z/machine_code.bin",
+          "target": "c.gaussian_array_statistics"
+        }
+      ],
+      "source_runs": [
+        {
+          "run_id": "run-20260510T182713462134Z",
+          "prompt": "Make up an array of 20 numbers with random numbers between 0-20 following a gaussian distribution. Produce the standard deviation, mean and median.",
+          "success": true
+        }
+      ]
+    }
+  }
+}

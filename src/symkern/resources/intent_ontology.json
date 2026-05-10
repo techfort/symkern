@@ -1,0 +1,30 @@
+{
+  "goals": [
+    "detect_stream_anomalies",
+    "generate_random_mapped_array",
+    "generate_gaussian_array_statistics",
+    "elect_illustrious_historical_death"
+  ],
+  "constraints": [
+    "minimize_false_positives",
+    "low_latency"
+  ],
+  "sinks": [
+    "stdout",
+    "artifact_store"
+  ],
+  "constraint_synonyms": {
+    "low false positives": "minimize_false_positives",
+    "false positives": "minimize_false_positives",
+    "minimize false positives": "minimize_false_positives",
+    "low latency": "low_latency",
+    "real-time": "low_latency"
+  },
+  "sink_synonyms": {
+    "artifact": "artifact_store",
+    "artifacts": "artifact_store",
+    "artifact_store": "artifact_store",
+    "stdout": "stdout",
+    "console": "stdout"
+  }
+}
