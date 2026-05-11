@@ -7,6 +7,8 @@ import urllib.error
 from dataclasses import dataclass
 
 from symkern.intent_contract import build_translation_instructions
+from symkern.program_spec_contract import build_program_spec_translation_instructions
+from symkern.operator_synthesis_contract import build_operator_synthesis_instructions
 
 
 @dataclass(slots=True)
@@ -20,6 +22,15 @@ class TranslatorAdapter:
         raise NotImplementedError
 
     def repair(self, prompt: str, invalid_payload: dict[str, object] | None, error_message: str) -> TranslationEnvelope:
+        raise NotImplementedError
+
+    def translate_program_spec(self, prompt: str) -> TranslationEnvelope:
+        raise NotImplementedError
+
+    def repair_program_spec(self, prompt: str, invalid_payload: dict[str, object] | None, error_message: str) -> TranslationEnvelope:
+        raise NotImplementedError
+
+    def synthesize_operator(self, operator_id: str, existing_operator_ids: list[str], program_spec_context: dict[str, object] | None = None) -> TranslationEnvelope:
         raise NotImplementedError
 
 
@@ -84,6 +95,51 @@ class OllamaTranslatorAdapter(TranslatorAdapter):
         )
         return TranslationEnvelope(payload=_decode_json_response(response_payload, "response"), translator=f"ollama:{self.model}:repair")
 
+    def synthesize_operator(self, operator_id: str, existing_operator_ids: list[str], program_spec_context: dict[str, object] | None = None) -> TranslationEnvelope:
+        instructions = build_operator_synthesis_instructions(operator_id, existing_operator_ids, program_spec_context)
+        response_payload = _http_post_json(
+            self.endpoint,
+            {
+                "model": self.model,
+                "prompt": instructions,
+                "stream": False,
+                "format": "json",
+                "options": {"temperature": self.temperature},
+            },
+        )
+        return TranslationEnvelope(payload=_decode_json_response(response_payload, "response"), translator=f"ollama:{self.model}:synthesize")
+
+    def translate_program_spec(self, prompt: str) -> TranslationEnvelope:
+        request_payload = {
+            "model": self.model,
+            "prompt": f"{build_program_spec_translation_instructions()}\n\nUser request: {prompt}\n",
+            "stream": False,
+            "format": "json",
+            "options": {"temperature": self.temperature},
+        }
+        response_payload = _http_post_json(self.endpoint, request_payload)
+        return TranslationEnvelope(payload=_decode_json_response(response_payload, "response"), translator=f"ollama:{self.model}")
+
+    def repair_program_spec(self, prompt: str, invalid_payload: dict[str, object] | None, error_message: str) -> TranslationEnvelope:
+        repair_prompt = (
+            f"{build_program_spec_translation_instructions()}\n\n"
+            f"The previous ProgramSpec translation was invalid for the following reason: {error_message}.\n"
+            f"Previous payload: {json.dumps(invalid_payload or {}, sort_keys=True)}\n"
+            f"User request: {prompt}\n"
+            "Return only corrected ProgramSpec JSON."
+        )
+        response_payload = _http_post_json(
+            self.endpoint,
+            {
+                "model": self.model,
+                "prompt": repair_prompt,
+                "stream": False,
+                "format": "json",
+                "options": {"temperature": self.temperature},
+            },
+        )
+        return TranslationEnvelope(payload=_decode_json_response(response_payload, "response"), translator=f"ollama:{self.model}:repair")
+
 
 @dataclass(slots=True)
 class OpenAICompatibleTranslatorAdapter(TranslatorAdapter):
@@ -122,6 +178,65 @@ class OpenAICompatibleTranslatorAdapter(TranslatorAdapter):
                         "role": "user",
                         "content": (
                             f"Repair the invalid Symkern intent JSON for this request. Error: {error_message}. "
+                            f"Previous payload: {json.dumps(invalid_payload or {}, sort_keys=True)}. "
+                            f"User request: {prompt}"
+                        ),
+                    },
+                ],
+            },
+            headers={"Authorization": f"Bearer {self.api_key}"},
+        )
+        return TranslationEnvelope(payload=_decode_json_response({
+            "response": content}, "response"), translator=f"openai-compatible:{self.model}:repair")
+
+    def synthesize_operator(self, operator_id: str, existing_operator_ids: list[str], program_spec_context: dict[str, object] | None = None) -> TranslationEnvelope:
+        instructions = build_operator_synthesis_instructions(operator_id, existing_operator_ids, program_spec_context)
+        response_payload = _http_post_json(
+            self.endpoint,
+            {
+                "model": self.model,
+                "temperature": self.temperature,
+                "response_format": {"type": "json_object"},
+                "messages": [
+                    {"role": "system", "content": instructions},
+                    {"role": "user", "content": f"Synthesize operator: {operator_id}"},
+                ],
+            },
+            headers={"Authorization": f"Bearer {self.api_key}"},
+        )
+        content = response_payload["choices"][0]["message"]["content"]
+        return TranslationEnvelope(payload=_decode_json_response({"response": content}, "response"), translator=f"openai-compatible:{self.model}:synthesize")
+
+    def translate_program_spec(self, prompt: str) -> TranslationEnvelope:
+        response_payload = _http_post_json(
+            self.endpoint,
+            {
+                "model": self.model,
+                "temperature": self.temperature,
+                "response_format": {"type": "json_object"},
+                "messages": [
+                    {"role": "system", "content": build_program_spec_translation_instructions()},
+                    {"role": "user", "content": prompt},
+                ],
+            },
+            headers={"Authorization": f"Bearer {self.api_key}"},
+        )
+        content = response_payload["choices"][0]["message"]["content"]
+        return TranslationEnvelope(payload=_decode_json_response({"response": content}, "response"), translator=f"openai-compatible:{self.model}")
+
+    def repair_program_spec(self, prompt: str, invalid_payload: dict[str, object] | None, error_message: str) -> TranslationEnvelope:
+        response_payload = _http_post_json(
+            self.endpoint,
+            {
+                "model": self.model,
+                "temperature": self.temperature,
+                "response_format": {"type": "json_object"},
+                "messages": [
+                    {"role": "system", "content": build_program_spec_translation_instructions()},
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Repair the invalid Symkern ProgramSpec JSON for this request. Error: {error_message}. "
                             f"Previous payload: {json.dumps(invalid_payload or {}, sort_keys=True)}. "
                             f"User request: {prompt}"
                         ),
@@ -169,6 +284,59 @@ class AnthropicTranslatorAdapter(TranslatorAdapter):
                         "role": "user",
                         "content": (
                             f"Repair the invalid Symkern intent JSON for this request. Error: {error_message}. "
+                            f"Previous payload: {json.dumps(invalid_payload or {}, sort_keys=True)}. "
+                            f"User request: {prompt}"
+                        ),
+                    }
+                ],
+            },
+            headers={"x-api-key": self.api_key, "anthropic-version": "2023-06-01"},
+        )
+        content = "".join(block.get("text", "") for block in list(response_payload.get("content", [])))
+        return TranslationEnvelope(payload=_decode_json_response({"response": content}, "response"), translator=f"anthropic:{self.model}:repair")
+    def synthesize_operator(self, operator_id: str, existing_operator_ids: list[str], program_spec_context: dict[str, object] | None = None) -> TranslationEnvelope:
+        instructions = build_operator_synthesis_instructions(operator_id, existing_operator_ids, program_spec_context)
+        response_payload = _http_post_json(
+            self.endpoint,
+            {
+                "model": self.model,
+                "max_tokens": 1200,
+                "temperature": self.temperature,
+                "system": instructions,
+                "messages": [{"role": "user", "content": f"Synthesize operator: {operator_id}"}],
+            },
+            headers={"x-api-key": self.api_key, "anthropic-version": "2023-06-01"},
+        )
+        content = "\n".join(block.get("text", "") for block in list(response_payload.get("content", [])))
+        return TranslationEnvelope(payload=_decode_json_response({"response": content}, "response"), translator=f"anthropic:{self.model}:synthesize")
+    def translate_program_spec(self, prompt: str) -> TranslationEnvelope:
+        response_payload = _http_post_json(
+            self.endpoint,
+            {
+                "model": self.model,
+                "max_tokens": 800,
+                "temperature": self.temperature,
+                "system": build_program_spec_translation_instructions(),
+                "messages": [{"role": "user", "content": prompt}],
+            },
+            headers={"x-api-key": self.api_key, "anthropic-version": "2023-06-01"},
+        )
+        content = "".join(block.get("text", "") for block in list(response_payload.get("content", [])))
+        return TranslationEnvelope(payload=_decode_json_response({"response": content}, "response"), translator=f"anthropic:{self.model}")
+
+    def repair_program_spec(self, prompt: str, invalid_payload: dict[str, object] | None, error_message: str) -> TranslationEnvelope:
+        response_payload = _http_post_json(
+            self.endpoint,
+            {
+                "model": self.model,
+                "max_tokens": 800,
+                "temperature": self.temperature,
+                "system": build_program_spec_translation_instructions(),
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Repair the invalid Symkern ProgramSpec JSON for this request. Error: {error_message}. "
                             f"Previous payload: {json.dumps(invalid_payload or {}, sort_keys=True)}. "
                             f"User request: {prompt}"
                         ),

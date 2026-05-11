@@ -20,6 +20,12 @@ The purpose is not to freeze Symkern into one future. The purpose is to let mult
 - Skill trust and reuse policy:
   See [skill-trust-model.md](/home/joe/10h/symkern/plans/skill-trust-model.md).
 
+- Deployment artifacts and narrow runtime targets:
+  See [deployment-artifacts.md](/home/joe/10h/symkern/plans/deployment-artifacts.md).
+
+- Prompt submission as strict program creation:
+  See [program-creation-contract.md](/home/joe/10h/symkern/plans/program-creation-contract.md).
+
 - Backend optimization and mixed execution:
   Symkern can already choose compiled backends for some slices. Future work should make backend choice cost-based and capability-driven rather than scenario-specific.
 

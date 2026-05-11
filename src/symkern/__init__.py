@@ -3,7 +3,9 @@ from symkern.intent_compiler import CompilerResult, IntentCompiler
 from symkern.intent_contract import load_intent_ontology, load_intent_schema
 from symkern.kernel import ConvergenceResult, KernelOrchestrator, SymKernel
 from symkern.periscope import Periscope, PeriscopeReport
-from symkern.prompt_layer import PromptIntent
+from symkern.program_spec_contract import build_program_spec_translation_instructions, build_translator_context_bundle, load_program_spec_schema
+from symkern.programs import ProgramRegistry
+from symkern.prompt_layer import ProgramSpec, PromptIntent
 from symkern.translator import AnthropicTranslatorAdapter, OllamaTranslatorAdapter, OpenAICompatibleTranslatorAdapter
 
 
@@ -26,7 +28,12 @@ __all__ = [
     "OpenAICompatibleTranslatorAdapter",
     "Periscope",
     "PeriscopeReport",
+    "ProgramRegistry",
+    "ProgramSpec",
     "PromptIntent",
     "SymKernel",
+    "build_program_spec_translation_instructions",
+    "build_translator_context_bundle",
+    "load_program_spec_schema",
     "submit_prompt",
 ]

@@ -29,8 +29,8 @@ class ConvergenceResult:
 
 
 class SymKernel:
-    def __init__(self, language: MachineLanguage | None = None, invention_engine: InventionEngine | None = None, skill_registry: SkillRegistry | None = None) -> None:
-        self.language = language or MachineLanguage()
+    def __init__(self, language: MachineLanguage | None = None, invention_engine: InventionEngine | None = None, skill_registry: SkillRegistry | None = None, deployment_root=None) -> None:
+        self.language = language or MachineLanguage(deployment_root=deployment_root)
         self.invention_engine = invention_engine or InventionEngine()
         self.skill_registry = skill_registry
         self.compiled_backends = CompiledBackendRegistry(skill_registry=skill_registry)
@@ -130,7 +130,7 @@ class SymKernel:
         if schema_version != MachineLanguage.SCHEMA_VERSION:
             raise ValueError(f"Unsupported machine language schema version: {schema_version}")
 
-        language = MachineLanguage()
+        language = self.language
         timings: dict[str, object] = {}
         prepare_start_ns = perf_counter_ns()
         for descriptor in dict(language_document.get("operation_schemas", {})).values():
@@ -248,6 +248,8 @@ def build_bundle(
     convergence: ConvergenceResult,
     compiler_meta: dict[str, object],
     timings: dict[str, object] | None = None,
+    program_spec: dict[str, object] | None = None,
+    synthesis_validation: dict[str, object] | None = None,
 ) -> ArtifactBundle:
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     return ArtifactBundle(
@@ -263,4 +265,7 @@ def build_bundle(
         language_snapshot=convergence.language_snapshot,
         timings=dict(timings or convergence.timings),
         backend=dict(convergence.backend),
+        input_contract=list(convergence.plan.metadata.get("input_contract", [])),
+        program_spec=dict(program_spec or {}),
+        synthesis_validation=dict(synthesis_validation or {}),
     )

@@ -4,13 +4,14 @@ import re
 from dataclasses import dataclass, field
 
 from symkern.intent_contract import SCHEMA_VERSION, SymkernIntentContract
-from symkern.prompt_layer import PromptIntent, PromptValidator
+from symkern.prompt_layer import ProgramSpec, ProgramSpecValidator, PromptIntent, PromptValidator
 from symkern.translator import TranslationEnvelope, TranslatorAdapter
 
 
 @dataclass(slots=True)
 class CompilerResult:
     intent: PromptIntent
+    program_spec: ProgramSpec
     assumptions: list[str] = field(default_factory=list)
     missing_information: list[str] = field(default_factory=list)
     confidence: float = 1.0
@@ -26,6 +27,7 @@ class IntentCompiler:
 
     def __init__(self, validator: PromptValidator | None = None, translator_adapter: TranslatorAdapter | None = None) -> None:
         self.validator = validator or PromptValidator()
+        self.program_spec_validator = ProgramSpecValidator()
         self.contract = SymkernIntentContract(self.validator)
         self.translator_adapter = translator_adapter
 
@@ -40,13 +42,257 @@ class IntentCompiler:
             raw_payload = repaired.payload
             translator = repaired.translator
             intent = self.contract.normalize(raw_payload)
+        program_spec = self.program_spec_validator.validate(self._build_program_spec(prompt, intent, translator))
         return CompilerResult(
             intent=intent,
+            program_spec=program_spec,
             assumptions=intent.assumptions,
             missing_information=intent.missing_information,
             confidence=intent.confidence,
             translator=translator,
         )
+
+    def _build_program_spec(self, prompt: str, intent: PromptIntent, translator: str) -> ProgramSpec:
+        requested_inputs, requested_outputs, transformations, synthesis_gaps = self._program_shape_for_intent(prompt, intent)
+        synthesis_gaps.extend(self._prompt_fidelity_gaps(prompt, intent))
+        return ProgramSpec(
+            program_id=self._slugify(intent.goals[0]),
+            title=prompt.strip(),
+            requested_inputs=requested_inputs,
+            requested_outputs=requested_outputs,
+            transformations=transformations,
+            hard_constraints=list(intent.constraints),
+            preferences=list(intent.preferences),
+            state_bindings=dict(intent.state),
+            assumptions=list(intent.assumptions),
+            missing_information=list(intent.missing_information),
+            synthesis_gaps=synthesis_gaps,
+            translator_metadata={"translator": translator, "source": "prompt"},
+            confidence=intent.confidence,
+        )
+
+    def _prompt_fidelity_gaps(self, prompt: str, intent: PromptIntent) -> list[dict[str, object]]:
+        text = prompt.strip()
+        if not text or any(marker in text for marker in ("→Ω", "Δ", "◐", "⟐")):
+            return []
+        if self._prompt_supports_goal(text, intent.goals):
+            return []
+        return [
+            {
+                "gap_id": "gap-translator-goal-mismatch",
+                "stage_id": "translator_alignment",
+                "reason": "translator_goal_mismatch",
+                "severity": "blocking",
+                "requested_capability": text,
+                "notes": f"Translator selected goal family {intent.goals[0]!r}, but the original prompt does not provide enough evidence for that family.",
+            }
+        ]
+
+    @staticmethod
+    def _prompt_supports_goal(prompt: str, goals: list[str]) -> bool:
+        lower = prompt.lower()
+        if goals == ["detect_stream_anomalies"]:
+            return any(token in lower for token in ("anomaly", "anomalies", "outlier", "outliers"))
+        if goals == ["elect_illustrious_historical_death"]:
+            return all(token in lower for token in ("historical dates", "wikipedia", "deaths", "illustrious"))
+        if goals == ["generate_gaussian_array_statistics"]:
+            return (
+                "array" in lower
+                and ("gaussian" in lower or "normal distribution" in lower)
+                and any(token in lower for token in ("standard deviation", "std deviation", "mean", "median"))
+            )
+        if goals == ["generate_random_mapped_array"]:
+            return all(token in lower for token in ("array", "random", "map"))
+        return False
+
+    def _program_shape_for_intent(
+        self,
+        prompt: str,
+        intent: PromptIntent,
+    ) -> tuple[list[dict[str, object]], list[dict[str, object]], list[dict[str, object]], list[dict[str, object]]]:
+        if intent.goals == ["detect_stream_anomalies"]:
+            return (
+                [
+                    {
+                        "name": "events",
+                        "kind": "event_stream",
+                        "required": False,
+                        "source": "invoke-time",
+                    }
+                ],
+                [{"name": "detections", "kind": "array[event_detection]"}],
+                [
+                    {
+                        "stage_id": "window_events",
+                        "kind": "stream_window",
+                        "description": "Partition the input stream into rolling windows.",
+                        "inputs": ["events"],
+                        "outputs": ["windowed_events"],
+                        "blocking": True,
+                    },
+                    {
+                        "stage_id": "score_anomalies",
+                        "kind": "anomaly_scoring",
+                        "description": "Establish a baseline, score deviations, and compare scores to a threshold.",
+                        "inputs": ["windowed_events"],
+                        "outputs": ["detections"],
+                        "blocking": True,
+                    },
+                ],
+                [],
+            )
+        if intent.goals == ["generate_random_mapped_array"]:
+            return (
+                [
+                    {
+                        "name": "source_array",
+                        "kind": "array[integer]",
+                        "required": False,
+                        "source": "invoke-time",
+                        "constraints": {
+                            "expected_length": int(intent.state.get("length", 5)),
+                            "min_value": int(intent.state.get("min_value", 1)),
+                            "max_value": int(intent.state.get("max_value", 10)),
+                        },
+                    }
+                ],
+                [
+                    {"name": "source_array", "kind": "array[integer]"},
+                    {"name": "mapped_array", "kind": "array[integer]"},
+                    {"name": "operations", "kind": "array[string]"},
+                ],
+                [
+                    {
+                        "stage_id": "obtain_source_array",
+                        "kind": "array_source",
+                        "description": "Accept an external integer array or synthesize one within the configured bounds.",
+                        "inputs": [],
+                        "outputs": ["source_array"],
+                        "blocking": True,
+                    },
+                    {
+                        "stage_id": "map_array",
+                        "kind": "array_transformation",
+                        "description": "Apply randomized arithmetic operations to each member of the source array.",
+                        "inputs": ["source_array"],
+                        "outputs": ["mapped_array", "operations"],
+                        "blocking": True,
+                    },
+                ],
+                [],
+            )
+        if intent.goals == ["generate_gaussian_array_statistics"]:
+            return (
+                [
+                    {
+                        "name": "source_array",
+                        "kind": "array[number]",
+                        "required": False,
+                        "source": "invoke-time",
+                        "constraints": {
+                            "expected_length": int(intent.state.get("length", 20)),
+                            "min_value": float(intent.state.get("min_value", 0)),
+                            "max_value": float(intent.state.get("max_value", 20)),
+                        },
+                    }
+                ],
+                [
+                    {"name": "source_array", "kind": "array[number]"},
+                    {"name": "statistics", "kind": "object[array_statistics]"},
+                ],
+                [
+                    {
+                        "stage_id": "obtain_source_array",
+                        "kind": "array_source",
+                        "description": "Accept an external numeric array or synthesize a bounded gaussian-distributed one.",
+                        "inputs": [],
+                        "outputs": ["source_array"],
+                        "blocking": True,
+                    },
+                    {
+                        "stage_id": "compute_statistics",
+                        "kind": "array_analytics",
+                        "description": "Compute summary statistics over the numeric array.",
+                        "inputs": ["source_array"],
+                        "outputs": ["statistics"],
+                        "blocking": True,
+                    },
+                ],
+                [],
+            )
+        if intent.goals == ["elect_illustrious_historical_death"]:
+            return (
+                [
+                    {
+                        "name": "historical_dates",
+                        "kind": "array[historical_date]",
+                        "required": False,
+                        "source": "invoke-time",
+                        "constraints": {"expected_length": int(intent.state.get("date_count", 3))},
+                    }
+                ],
+                [
+                    {"name": "historical_dates", "kind": "array[historical_date]"},
+                    {"name": "death_candidates", "kind": "array[death_candidate]"},
+                    {"name": "selected_death", "kind": "object[death_candidate]"},
+                ],
+                [
+                    {
+                        "stage_id": "obtain_dates",
+                        "kind": "date_source",
+                        "description": "Accept historical dates or synthesize candidate dates for lookup.",
+                        "inputs": [],
+                        "outputs": ["historical_dates"],
+                        "blocking": True,
+                    },
+                    {
+                        "stage_id": "lookup_deaths",
+                        "kind": "external_lookup",
+                        "description": "Retrieve death candidates for the selected dates from Wikipedia.",
+                        "inputs": ["historical_dates"],
+                        "outputs": ["death_candidates", "death_candidate_features"],
+                        "blocking": True,
+                    },
+                    {
+                        "stage_id": "select_candidate",
+                        "kind": "decision",
+                        "description": "Select the most illustrious death candidate from derived features.",
+                        "inputs": ["death_candidate_features"],
+                        "outputs": ["selected_death"],
+                        "blocking": True,
+                    },
+                ],
+                [],
+            )
+        return (
+            [],
+            [{"name": "emitted", "kind": "object[generic_result]"}],
+            [
+                {
+                    "stage_id": "unresolved_request",
+                    "kind": "unresolved_goal",
+                    "description": prompt.strip(),
+                    "inputs": [],
+                    "outputs": ["emitted"],
+                    "blocking": True,
+                }
+            ],
+            [
+                {
+                    "gap_id": "gap-unsupported-goal",
+                    "stage_id": "unresolved_request",
+                    "reason": "unsupported_goal_family",
+                    "severity": "blocking",
+                    "requested_capability": intent.goals[0],
+                    "notes": "No validated open-ended planner exists yet for this request.",
+                }
+            ],
+        )
+
+    @staticmethod
+    def _slugify(value: str) -> str:
+        normalized = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+        return normalized or "program"
 
     def _translate(self, prompt: str) -> tuple[dict[str, object], str]:
         text = prompt.strip()

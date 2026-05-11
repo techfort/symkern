@@ -46,6 +46,34 @@ class _RepairingAdapter(TranslatorAdapter):
         )()
 
 
+class _MismatchingAdapter(TranslatorAdapter):
+    def translate(self, prompt: str):
+        return type(
+            "Envelope",
+            (),
+            {
+                "payload": {
+                    "schema_version": SCHEMA_VERSION,
+                    "goals": ["generate_gaussian_array_statistics"],
+                    "constraints": [],
+                    "preferences": [],
+                    "state": {
+                        "length": 10,
+                        "min_value": 1,
+                        "max_value": 10,
+                        "distribution": "gaussian",
+                        "requested_statistics": ["standard_deviation", "mean", "median"],
+                    },
+                    "sinks": ["stdout"],
+                    "assumptions": [],
+                    "missing_information": [],
+                    "confidence": 0.81,
+                },
+                "translator": "mismatch:test",
+            },
+        )()
+
+
 def test_intent_contract_normalizes_constraint_and_sink_synonyms() -> None:
     contract = SymkernIntentContract(PromptValidator())
 
@@ -118,6 +146,16 @@ def test_compiler_repairs_invalid_translator_output() -> None:
     assert result.intent.goals == ["detect_stream_anomalies"]
     assert result.intent.constraints == ["minimize_false_positives"]
     assert result.intent.sinks == ["stdout"]
+
+
+def test_compiler_marks_translator_goal_mismatch_as_blocking_program_gap() -> None:
+    compiler = IntentCompiler(translator_adapter=_MismatchingAdapter())
+
+    result = compiler.compile("Generate a decimal sequence from 1 to 10, map the square root of each element, then sum the transformed values.")
+
+    assert result.intent.goals == ["generate_gaussian_array_statistics"]
+    assert result.program_spec.synthesis_gaps[0]["reason"] == "translator_goal_mismatch"
+    assert result.program_spec.synthesis_gaps[0]["severity"] == "blocking"
 
 
 def test_contract_rejects_embedded_object_strings_in_goals() -> None:

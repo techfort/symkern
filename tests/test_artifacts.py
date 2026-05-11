@@ -260,6 +260,37 @@ def test_submitted_artifact_persists_timings(tmp_path: Path) -> None:
     assert Path(artifact["backend"]["artifacts"]["backend_binary"]).exists()
 
 
+def test_submitted_artifact_persists_program_spec(tmp_path: Path) -> None:
+    submitted = submit_prompt(
+        "Create a 5-element array of random numbers whose value is between 1 and 10, then create an array that is a map of the first array with random maths operation applied to the members of the first array.",
+        artifact_root=tmp_path,
+    )
+
+    artifact = ArtifactStore(tmp_path).load_machine_artifact(submitted["artifact_path"])
+    program_spec_path = Path(submitted["artifact_path"]).with_name("program_spec.json")
+
+    assert artifact["program_spec"]["spec_version"] == "symkern.program-spec/v1alpha1"
+    assert artifact["program_spec"]["requested_inputs"][0]["name"] == "source_array"
+    assert artifact["program_spec"]["transformations"][1]["stage_id"] == "map_array"
+    assert submitted["program_spec"]["requested_outputs"][1]["name"] == "mapped_array"
+    assert program_spec_path.exists()
+
+
+def test_uncovered_program_creation_fails_closed_and_persists_gap_artifact(tmp_path: Path) -> None:
+    submitted = submit_prompt(
+        "Generate a decimal sequence from 1 to 10, map the square root of each element, then sum the transformed values.",
+        artifact_root=tmp_path,
+    )
+
+    artifact = ArtifactStore(tmp_path).load_machine_artifact(submitted["artifact_path"])
+
+    assert submitted["status"] == "failed"
+    assert submitted["machine_code_path"] is None
+    assert artifact["reason_codes"][0] == "synthesis_failed"
+    assert artifact["synthesis_validation"]["status"] == "failed"
+    assert artifact["program_spec"]["synthesis_gaps"][0]["severity"] == "blocking"
+
+
 def test_successful_backend_run_updates_local_skill_registry(tmp_path: Path) -> None:
     submitted = submit_prompt(
         "Make up an array of 20 numbers with random numbers between 0-20 following a gaussian distribution. Produce the standard deviation, mean and median.",

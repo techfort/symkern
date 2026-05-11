@@ -2,14 +2,28 @@ from __future__ import annotations
 
 import json
 import random
+import re
 import urllib.error
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from statistics import mean, median, pstdev
 
 from symkern.nodes import Node, PlanGraph
-from symkern.prompt_layer import PromptIntent
+from symkern.prompt_layer import ProgramSpec, PromptIntent
+
+
+@dataclass(slots=True)
+class OperatorGap:
+    operator_id: str
+    transformation_index: int
+
+
+@dataclass(slots=True)
+class PlanAssemblyResult:
+    plan: PlanGraph | None
+    gaps: list[OperatorGap]
 
 
 @dataclass(slots=True)
@@ -51,15 +65,24 @@ class MachineLanguage:
         "core.generate_historical_dates": 205,
         "core.lookup_wikipedia_deaths": 206,
         "core.elect_illustrious_death": 207,
+        "core.normalize_text_words": 301,
+        "core.render_camel_case": 302,
+        "core.render_snake_case": 303,
     }
     INVENTED_OPCODE_START = 1000
+    SYNTHESIZED_OPERATOR_REGISTRY = ".symkern/operators/registry.json"
 
-    def __init__(self) -> None:
+    def __init__(self, deployment_root: str | Path | None = None) -> None:
         self.op_registry_by_code: dict[int, OperationSchema] = {}
         self.rewrite_rules: list[RewriteRule] = []
+        self._deployment_root: Path | None = Path(deployment_root) if deployment_root else None
         self._register_builtins()
 
     def _register_builtins(self) -> None:
+        self._register_hardcoded_builtins()
+        self._load_synthesized_operator_registry()
+
+    def _register_hardcoded_builtins(self) -> None:
         self.register(
             OperationSchema(
                 op_id="core.stream_window",
@@ -180,6 +203,127 @@ class MachineLanguage:
                 description="Select the most illustrious death candidate using derived feature scores.",
             )
         )
+        self.register(
+            OperationSchema(
+                op_id="core.normalize_text_words",
+                op_code=self.BUILTIN_OPCODES["core.normalize_text_words"],
+                signature={"inputs": ["text"], "outputs": ["word_tokens"]},
+                machine_metadata={"category": "text"},
+                handler=self._op_normalize_text_words,
+                description="Normalize input text into reusable word tokens.",
+            )
+        )
+        self.register(
+            OperationSchema(
+                op_id="core.render_camel_case",
+                op_code=self.BUILTIN_OPCODES["core.render_camel_case"],
+                signature={"inputs": ["word_tokens"], "outputs": ["camel_case"]},
+                machine_metadata={"category": "text"},
+                handler=self._op_render_camel_case,
+                description="Render normalized word tokens as camelCase.",
+            )
+        )
+        self.register(
+            OperationSchema(
+                op_id="core.render_snake_case",
+                op_code=self.BUILTIN_OPCODES["core.render_snake_case"],
+                signature={"inputs": ["word_tokens"], "outputs": ["snake_case"]},
+                machine_metadata={"category": "text"},
+                handler=self._op_render_snake_case,
+                description="Render normalized word tokens as snake_case.",
+            )
+        )
+
+    def _load_synthesized_operator_registry(self) -> None:
+        """Load dynamically synthesized operators from the durable operator registry."""
+        if self._deployment_root:
+            registry_path = self._deployment_root / ".symkern" / "operators" / "registry.json"
+        else:
+            registry_path = Path(self.SYNTHESIZED_OPERATOR_REGISTRY)
+        if not registry_path.exists():
+            return
+        try:
+            data = json.loads(registry_path.read_text(encoding="utf-8"))
+            for entry in list(data.get("operators", [])):
+                self._register_synthesized_entry(dict(entry))
+        except Exception:
+            pass  # corrupt registry does not crash startup
+
+    def _register_synthesized_entry(self, entry: dict[str, object]) -> None:
+        """Register one persisted synthesized operator entry."""
+        from symkern.operator_compiler import compile_handler  # late import, avoids circular
+        from symkern.operator_synthesis_contract import OperatorHandlerSpec
+
+        op_id = str(entry.get("operator_id", ""))
+        op_code = int(entry.get("op_code", 0))
+        if not op_id or not op_code:
+            return
+        if op_code in self.op_registry_by_code:
+            return
+
+        kind = str(entry.get("implementation_kind", ""))
+        if kind == "handler_spec":
+            # Merge signature.inputs/outputs into top-level so from_dict picks them up
+            sig = dict(entry.get("signature", {}))
+            hydrated = {
+                **entry,
+                "inputs": entry.get("inputs") or sig.get("inputs", []),
+                "outputs": entry.get("outputs") or sig.get("outputs", []),
+            }
+            spec = OperatorHandlerSpec.from_dict(hydrated)
+            handler = compile_handler(spec)
+        elif kind == "composition":
+            invented_from = [int(c) for c in list(entry.get("invented_from_opcodes", []))]
+            if not all(c in self.op_registry_by_code for c in invented_from):
+                return  # dependency not yet loaded
+            handler = self._build_invented_handler(invented_from)
+        else:
+            return
+
+        self.register(
+            OperationSchema(
+                op_id=op_id,
+                op_code=op_code,
+                signature=dict(entry.get("signature", {})),
+                machine_metadata=dict(entry.get("machine_metadata", {})),
+                handler=handler,
+                description=str(entry.get("description", "")),
+            )
+        )
+
+    def persist_synthesized_operator(
+        self,
+        op_id: str,
+        op_code: int,
+        signature: dict[str, object],
+        machine_metadata: dict[str, object],
+        description: str,
+        implementation_kind: str,
+        implementation_payload: dict[str, object],
+    ) -> None:
+        """Persist a newly synthesized operator to the durable registry."""
+        if self._deployment_root:
+            registry_path = self._deployment_root / ".symkern" / "operators" / "registry.json"
+        else:
+            registry_path = Path(self.SYNTHESIZED_OPERATOR_REGISTRY)
+        registry_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            data = json.loads(registry_path.read_text(encoding="utf-8")) if registry_path.exists() else {}
+        except Exception:
+            data = {}
+        operators = list(data.get("operators", []))
+        # Avoid duplicates
+        operators = [o for o in operators if str(o.get("operator_id", "")) != op_id]
+        operators.append({
+            "operator_id": op_id,
+            "op_code": op_code,
+            "signature": signature,
+            "machine_metadata": machine_metadata,
+            "description": description,
+            "implementation_kind": implementation_kind,
+            **implementation_payload,
+        })
+        registry_path.write_text(json.dumps({"operators": operators}, indent=2), encoding="utf-8")
 
     def register(self, schema: OperationSchema) -> None:
         self.op_registry_by_code[schema.op_code] = schema
@@ -237,6 +381,116 @@ class MachineLanguage:
             "plan_metadata": dict(plan.metadata),
         }
 
+    def capability_catalog(self) -> dict[str, object]:
+        capabilities = []
+        for op_code in sorted(self.op_registry_by_code):
+            schema = self.op_registry_by_code[op_code]
+            capabilities.append(
+                {
+                    "capability_id": schema.op_id or f"opcode.{op_code}",
+                    "op_code": op_code,
+                    "kind": "builtin_operator" if op_code < self.INVENTED_OPCODE_START else "invented_abstraction",
+                    "signature": dict(schema.signature),
+                    "metadata": dict(schema.machine_metadata),
+                    "description": schema.description,
+                }
+            )
+        return {
+            "schema_version": "symkern.operator-capability-registry/v1alpha1",
+            "capabilities": capabilities,
+        }
+
+    def assemble_plan_from_program_spec(self, spec: ProgramSpec, strategy: str = "spec") -> PlanAssemblyResult:
+        """Generic registry-based assembler. Returns a PlanAssemblyResult with any missing-operator gaps."""    
+        result = self._assemble_plan_internal(spec, strategy)
+        return result
+
+    def _assemble_plan_internal(self, spec: ProgramSpec, strategy: str = "spec") -> PlanAssemblyResult:
+        """Core plan assembly: returns partial plan + list of OperatorGap for unknown operators."""
+        op_by_id: dict[str, OperationSchema] = {
+            schema.op_id: schema
+            for schema in self.op_registry_by_code.values()
+            if schema.op_id
+        }
+
+        plan = PlanGraph(
+            plan_id=f"plan-{strategy}",
+            state_bindings=dict(spec.state_bindings),
+            metadata={
+                "strategy": strategy,
+                "program_id": spec.program_id,
+                "requested_outputs": [dict(item) for item in spec.requested_outputs],
+            },
+        )
+        plan.metadata["input_contract"] = [dict(item) for item in spec.requested_inputs]
+
+        produced_by: dict[str, str] = {}
+        gaps: list[OperatorGap] = []
+
+        for idx, transformation in enumerate(spec.transformations):
+            op_id = str(transformation.get("operator_id", "")).strip()
+            if not op_id:
+                gaps.append(OperatorGap(operator_id="", transformation_index=idx))
+                continue
+            schema = op_by_id.get(op_id)
+            if schema is None:
+                gaps.append(OperatorGap(operator_id=op_id, transformation_index=idx))
+                continue
+
+            node_id = f"n{idx + 1}"
+            raw_inputs = list(transformation.get("inputs", []))
+            raw_outputs = list(transformation.get("outputs", []))
+            inp_names = [str(i.get("name", i) if isinstance(i, dict) else i) for i in raw_inputs]
+            out_names = [str(o.get("name", o) if isinstance(o, dict) else o) for o in raw_outputs]
+            if not inp_names:
+                inp_names = list(schema.signature.get("inputs", []))
+            if not out_names:
+                out_names = list(schema.signature.get("outputs", []))
+
+            extra_meta = {
+                key: val for key, val in transformation.items()
+                if key not in ("operator_id", "operator", "inputs", "outputs", "kind", "stage_id")
+            }
+            node = Node(node_id, op_code=schema.op_code, inputs=inp_names, outputs=out_names, metadata=extra_meta)
+            plan.add_node(node)
+            for out_name in out_names:
+                produced_by[out_name] = node_id
+
+        for node in plan.nodes:
+            for inp in node.inputs:
+                src = produced_by.get(inp)
+                if src and src != node.node_id:
+                    plan.add_edge(src, node.node_id)
+
+        # Auto-append emit_sink if spec doesn't include one and there are no gaps
+        if not gaps:
+            transformation_op_ids = {str(t.get("operator_id", "")) for t in spec.transformations}
+            if "core.emit_sink" not in transformation_op_ids:
+                sink_inputs = [str(item.get("name", "")) for item in spec.requested_outputs]
+                sink_node_id = f"n{len(spec.transformations) + 1}"
+                sink_node = Node(
+                    sink_node_id,
+                    op_code=self.BUILTIN_OPCODES["core.emit_sink"],
+                    inputs=sink_inputs,
+                    outputs=["emitted"],
+                    metadata={"sinks": list(spec.state_bindings.get("sinks", ["stdout"]))},
+                )
+                plan.add_node(sink_node)
+                for inp in sink_inputs:
+                    src = produced_by.get(inp)
+                    if src:
+                        plan.add_edge(src, sink_node_id)
+
+        return PlanAssemblyResult(plan=plan if not gaps else None, gaps=gaps)
+
+    def build_plan_from_program_spec(self, spec: ProgramSpec, strategy: str = "spec") -> PlanGraph:
+        """Compile a ProgramSpec; raises ValueError if any operator_id is unknown."""
+        result = self._assemble_plan_internal(spec, strategy)
+        if result.gaps:
+            unknown = [g.operator_id for g in result.gaps if g.operator_id]
+            raise ValueError(f"Unknown operators: {unknown}")
+        return result.plan  # type: ignore[return-value]
+
     def build_plan(self, intent: PromptIntent, strategy: str = "default") -> PlanGraph:
         plan = PlanGraph(
             plan_id=f"plan-{strategy}",
@@ -245,6 +499,15 @@ class MachineLanguage:
         )
 
         if any(goal == "detect_stream_anomalies" for goal in intent.goals):
+            plan.metadata["input_contract"] = [
+                {
+                    "name": "events",
+                    "kind": "event_stream",
+                    "required": False,
+                    "source": "invoke-time",
+                    "description": "Optional external event stream. If omitted, synthetic events may be used by the caller.",
+                }
+            ]
             nodes = [
                 Node("n1", op_code=self.BUILTIN_OPCODES["core.stream_window"], outputs=["windowed_events"], metadata={"window_size": intent.state.get("window_size", 5)}),
                 Node("n2", op_code=self.BUILTIN_OPCODES["core.moving_baseline"], inputs=["windowed_events"], outputs=["baseline"]),
@@ -259,6 +522,20 @@ class MachineLanguage:
             return plan
 
         if any(goal == "generate_random_mapped_array" for goal in intent.goals):
+            plan.metadata["input_contract"] = [
+                {
+                    "name": "source_array",
+                    "kind": "array[integer]",
+                    "required": False,
+                    "source": "invoke-time",
+                    "constraints": {
+                        "expected_length": int(intent.state.get("length", 5)),
+                        "min_value": int(intent.state.get("min_value", 1)),
+                        "max_value": int(intent.state.get("max_value", 10)),
+                    },
+                    "description": "Optional external source array. If omitted, the program synthesizes one internally.",
+                }
+            ]
             nodes = [
                 Node(
                     "n1",
@@ -268,6 +545,7 @@ class MachineLanguage:
                         "length": intent.state.get("length", 5),
                         "min_value": intent.state.get("min_value", 1),
                         "max_value": intent.state.get("max_value", 10),
+                        "accept_invoke_input": True,
                     },
                 ),
                 Node(
@@ -292,6 +570,20 @@ class MachineLanguage:
             return plan
 
         if any(goal == "generate_gaussian_array_statistics" for goal in intent.goals):
+            plan.metadata["input_contract"] = [
+                {
+                    "name": "source_array",
+                    "kind": "array[number]",
+                    "required": False,
+                    "source": "invoke-time",
+                    "constraints": {
+                        "expected_length": int(intent.state.get("length", 20)),
+                        "min_value": float(intent.state.get("min_value", 0)),
+                        "max_value": float(intent.state.get("max_value", 20)),
+                    },
+                    "description": "Optional external numeric array. If omitted, the program synthesizes one internally.",
+                }
+            ]
             nodes = [
                 Node(
                     "n1",
@@ -301,6 +593,7 @@ class MachineLanguage:
                         "length": intent.state.get("length", 20),
                         "min_value": intent.state.get("min_value", 0),
                         "max_value": intent.state.get("max_value", 20),
+                        "accept_invoke_input": True,
                     },
                 ),
                 Node(
@@ -325,6 +618,18 @@ class MachineLanguage:
             return plan
 
         if any(goal == "elect_illustrious_historical_death" for goal in intent.goals):
+            plan.metadata["input_contract"] = [
+                {
+                    "name": "historical_dates",
+                    "kind": "array[historical_date]",
+                    "required": False,
+                    "source": "invoke-time",
+                    "constraints": {
+                        "expected_length": int(intent.state.get("date_count", 3)),
+                    },
+                    "description": "Optional external list of historical dates. If omitted, the program synthesizes dates internally.",
+                }
+            ]
             nodes = [
                 Node(
                     "n1",
@@ -473,12 +778,79 @@ class MachineLanguage:
                     "sinks": node.metadata.get("sinks", []),
                 }
             }
+        if node.metadata.get("emission_kind") == "text_case_conversion":
+            return {
+                "emitted": {
+                    "text": str(context.get("text", "")),
+                    "camel_case": str(context.get("camel_case", "")),
+                    "snake_case": str(context.get("snake_case", "")),
+                    "sinks": node.metadata.get("sinks", []),
+                }
+            }
         if "message" in node.metadata:
             return {"emitted": {"message": node.metadata["message"], "sinks": node.metadata.get("sinks", [])}}
-        return {"emitted": {"detections": list(context.get("detections", [])), "sinks": node.metadata.get("sinks", [])}}
+        # Generic fallback: collect all declared inputs from context
+        collected: dict[str, object] = {}
+        for inp_name in node.inputs:
+            if inp_name in context:
+                val = context[inp_name]
+                collected[inp_name] = list(val) if isinstance(val, list) else val
+        collected["sinks"] = node.metadata.get("sinks", [])
+        return {"emitted": collected}
+
+    @staticmethod
+    def _op_normalize_text_words(node: Node, context: dict[str, object]) -> dict[str, object]:
+        text = str(context.get("text", ""))
+        words = [token.lower() for token in re.findall(r"[A-Za-z0-9]+", text)]
+        return {"word_tokens": words}
+
+    @staticmethod
+    def _op_render_camel_case(node: Node, context: dict[str, object]) -> dict[str, object]:
+        words = [str(item) for item in context.get("word_tokens", [])]
+        if not words:
+            return {"camel_case": ""}
+        head, *tail = words
+        return {"camel_case": head + "".join(word[:1].upper() + word[1:] for word in tail)}
+
+    @staticmethod
+    def _op_render_snake_case(node: Node, context: dict[str, object]) -> dict[str, object]:
+        words = [str(item) for item in context.get("word_tokens", [])]
+        return {"snake_case": "_".join(words)}
+
+    @staticmethod
+    def _op_generate_matrix(node: Node, context: dict[str, object]) -> dict[str, object]:
+        if "matrix" in context:
+            return {"matrix": list(context["matrix"])}
+        seed = int(context.get("seed", 17))
+        generator = random.Random(seed)
+        rows = int(node.metadata.get("rows", 5))
+        cols = int(node.metadata.get("cols", rows))
+        min_value = int(node.metadata.get("min_value", 1))
+        max_value = int(node.metadata.get("max_value", 10))
+        matrix = [[generator.randint(min_value, max_value) for _ in range(cols)] for _ in range(rows)]
+        return {"matrix": matrix}
+
+    @staticmethod
+    def _op_extract_diagonal(node: Node, context: dict[str, object]) -> dict[str, object]:
+        matrix = list(context.get("matrix", []))
+        diagonal = []
+        for i, row in enumerate(matrix):
+            row_list = list(row)
+            if i < len(row_list):
+                diagonal.append(row_list[i])
+        return {"diagonal": diagonal}
+
+    @staticmethod
+    def _op_sum_integers(node: Node, context: dict[str, object]) -> dict[str, object]:
+        input_name = node.inputs[0] if node.inputs else "diagonal"
+        output_name = node.outputs[0] if node.outputs else "sum"
+        values = list(context.get(input_name, []))
+        return {output_name: sum(int(v) for v in values)}
 
     @staticmethod
     def _op_generate_random_array(node: Node, context: dict[str, object]) -> dict[str, object]:
+        if "source_array" in context:
+            return {"source_array": list(context.get("source_array", []))}
         seed = context.get("seed", 17)
         generator = random.Random(seed)
         length = int(node.metadata.get("length", 5))
@@ -512,6 +884,8 @@ class MachineLanguage:
 
     @staticmethod
     def _op_generate_gaussian_array(node: Node, context: dict[str, object]) -> dict[str, object]:
+        if "source_array" in context:
+            return {"source_array": list(context.get("source_array", []))}
         seed = context.get("seed", 17)
         generator = random.Random(seed)
         length = int(node.metadata.get("length", 20))

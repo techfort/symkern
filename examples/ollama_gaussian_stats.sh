@@ -16,6 +16,7 @@ if [[ ! -x "$PYTHON_BIN" ]]; then
 fi
 
 "$PYTHON_BIN" -m symkern.cli \
+  create-program \
   --prompt "Make up an array of 20 numbers with random numbers between 0-20 following a gaussian distribution. Produce the standard deviation, mean and median." \
   --translator ollama \
   --ollama-model llama3.1:8b

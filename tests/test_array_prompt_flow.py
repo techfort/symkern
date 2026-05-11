@@ -1,7 +1,7 @@
 from pathlib import Path
 import json
 
-from symkern.cli import submit_prompt
+from symkern.cli import replay_language, submit_prompt
 from symkern.machine_code import CODE_MAGIC, SYMBOLS_MAGIC
 
 
@@ -75,3 +75,27 @@ def test_trusted_abstraction_skill_is_reused_during_synthesis(tmp_path: Path) ->
 
     assert any(event["stage"] == "retrieve" and event["payload"]["op_code"] == 1000 for event in events)
     assert reused["backend"]["skill_registry"]["abstractions"][0]["status"] == "trusted"
+
+
+def test_created_array_program_declares_input_contract_and_accepts_invoke_time_source_array(tmp_path: Path) -> None:
+    created = submit_prompt(
+        "Create a 5-element array of random numbers whose value is between 1 and 10, then create an array that is a map of the first array with random maths operation applied to the members of the first array.",
+        artifact_root=tmp_path,
+    )
+
+    created_artifact = json.loads(Path(created["artifact_path"]).read_text(encoding="utf-8"))
+    input_contract = list(created_artifact["input_contract"])
+
+    assert input_contract[0]["name"] == "source_array"
+    assert input_contract[0]["kind"] == "array[integer]"
+    assert input_contract[0]["constraints"]["expected_length"] == 5
+
+    invoked = replay_language(
+        created["machine_code_path"],
+        artifact_root=tmp_path,
+        input_payload={"source_array": [1, 2, 3, 4, 5]},
+    )
+    invoked_artifact = json.loads(Path(invoked["artifact_path"]).read_text(encoding="utf-8"))
+
+    assert invoked_artifact["outputs"]["source_array"] == [1, 2, 3, 4, 5]
+    assert invoked_artifact["outputs"]["mapped_array"] == [2, 4, 2, 6, 10]

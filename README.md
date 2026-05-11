@@ -83,7 +83,7 @@ This means Symkern already behaves like an early machine-native tree shaker: unu
 
 ```bash
 pip install -e .[dev]
-symkern --prompt "Detect anomalies in a streaming signal with low false positives"
+symkern create-program --prompt "Detect anomalies in a streaming signal with low false positives"
 symkern-demo
 ```
 
@@ -92,7 +92,7 @@ symkern-demo
 To test a local model through Ollama while preserving the same validated ingress contract:
 
 ```bash
-symkern \
+symkern create-program \
 	--prompt "Make up an array of 20 numbers with random numbers between 0-20 following a gaussian distribution. Produce the standard deviation, mean and median." \
 	--translator ollama \
 	--ollama-model llama3.1:8b
@@ -101,7 +101,7 @@ symkern \
 OpenAI-compatible example:
 
 ```bash
-symkern \
+symkern create-program \
 	--prompt "Detect anomalies in a streaming signal with low false positives" \
 	--translator openai-compatible \
 	--translator-model gpt-4.1-mini \
@@ -111,7 +111,7 @@ symkern \
 Anthropic example:
 
 ```bash
-symkern \
+symkern create-program \
 	--prompt "make up 3 historical dates, lookup on wikipedia.org what deaths occurred on those dates and elect the most illustrious one" \
 	--translator anthropic \
 	--translator-model claude-3-5-sonnet-latest \
@@ -152,8 +152,8 @@ Symkern supports both replay and explain workflows from persisted machine code.
 Examples:
 
 ```bash
-symkern --replay-language artifacts/<run-id>/machine_code.bin
-symkern --explain-machine-code artifacts/<run-id>/machine_code.bin
+symkern invoke-program --machine-code artifacts/<run-id>/machine_code.bin
+symkern explain-program --machine-code artifacts/<run-id>/machine_code.bin
 ```
 
 ## What Periscope Documents

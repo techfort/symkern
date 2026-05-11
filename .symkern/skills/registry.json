@@ -19,62 +19,45 @@
         "generate_gaussian_array_statistics"
       ],
       "selection": {
-        "target": "c.gaussian_array_statistics",
+        "estimated_compiled_ns": 48780,
+        "estimated_interpreted_ns": 800000,
+        "selection_reason": "Selected the backend with the lowest estimated execution cost for the numeric slice.",
         "slice_node_ids": [
           "n1",
           "n2"
         ],
-        "estimated_interpreted_ns": 1350000,
-        "estimated_compiled_ns": 29236,
-        "selection_reason": "Selected the backend with the lowest estimated execution cost for the numeric slice."
+        "target": "c.gaussian_array_statistics"
       },
-      "selection_count": 4,
-      "success_count": 4,
-      "total_execute_ns": 110016,
-      "mean_execute_ns": 27504,
-      "last_execute_ns": 22306,
-      "active_reference_count": 4,
-      "status": "trusted",
+      "selection_count": 9,
+      "success_count": 9,
+      "total_execute_ns": 406326,
+      "mean_execute_ns": 45147,
+      "last_execute_ns": 21330,
+      "active_reference_count": 0,
+      "status": "retired",
       "artifact_examples": [
         {
-          "backend_source": "artifacts/run-20260510T182713462134Z/backend/c_gaussian_array_statistics_plan-default.c",
-          "backend_binary": "artifacts/run-20260510T182713462134Z/backend/c_gaussian_array_statistics_plan-default"
+          "backend_source": "artifacts/run-20260510T190258829737Z/backend/c_gaussian_array_statistics_plan-default.c",
+          "backend_binary": "artifacts/run-20260510T190258829737Z/backend/c_gaussian_array_statistics_plan-default"
         },
         {
-          "backend_source": "artifacts/run-20260510T183428475400Z/backend/c_gaussian_array_statistics_plan-default.c",
-          "backend_binary": "artifacts/run-20260510T183428475400Z/backend/c_gaussian_array_statistics_plan-default"
+          "backend_source": "artifacts/run-20260510T190351114594Z/backend/c_gaussian_array_statistics_plan-default.c",
+          "backend_binary": "artifacts/run-20260510T190351114594Z/backend/c_gaussian_array_statistics_plan-default"
         },
         {
-          "backend_source": "artifacts/run-20260510T183458249416Z/backend/c_gaussian_array_statistics_plan-default.c",
-          "backend_binary": "artifacts/run-20260510T183458249416Z/backend/c_gaussian_array_statistics_plan-default"
+          "backend_source": "artifacts/run-20260510T190453088312Z/backend/c_gaussian_array_statistics_plan-default.c",
+          "backend_binary": "artifacts/run-20260510T190453088312Z/backend/c_gaussian_array_statistics_plan-default"
         },
         {
-          "backend_source": "artifacts/run-20260510T183533136878Z/backend/c_gaussian_array_statistics_plan-default.c",
-          "backend_binary": "artifacts/run-20260510T183533136878Z/backend/c_gaussian_array_statistics_plan-default"
+          "backend_source": "artifacts/run-20260511T101310514815Z/backend/c_gaussian_array_statistics_plan-default.c",
+          "backend_binary": "artifacts/run-20260511T101310514815Z/backend/c_gaussian_array_statistics_plan-default"
+        },
+        {
+          "backend_source": "artifacts/run-20260511T101324913375Z/backend/c_gaussian_array_statistics_plan-default.c",
+          "backend_binary": "artifacts/run-20260511T101324913375Z/backend/c_gaussian_array_statistics_plan-default"
         }
       ],
-      "executable_references": [
-        {
-          "run_id": "run-20260510T182713462134Z",
-          "machine_code_path": "artifacts/run-20260510T182713462134Z/machine_code.bin",
-          "target": "c.gaussian_array_statistics"
-        },
-        {
-          "run_id": "run-20260510T183428475400Z",
-          "machine_code_path": "artifacts/run-20260510T183428475400Z/machine_code.bin",
-          "target": "c.gaussian_array_statistics"
-        },
-        {
-          "run_id": "run-20260510T183458249416Z",
-          "machine_code_path": "artifacts/run-20260510T183458249416Z/machine_code.bin",
-          "target": "c.gaussian_array_statistics"
-        },
-        {
-          "run_id": "run-20260510T183533136878Z",
-          "machine_code_path": "artifacts/run-20260510T183533136878Z/machine_code.bin",
-          "target": "c.gaussian_array_statistics"
-        }
-      ],
+      "executable_references": [],
       "source_runs": [
         {
           "run_id": "run-20260510T182713462134Z",
@@ -94,6 +77,102 @@
         {
           "run_id": "run-20260510T183533136878Z",
           "prompt": "Make up an array of 20 numbers with random numbers between 0-20 following a gaussian distribution. Produce the standard deviation, mean and median.",
+          "success": true
+        },
+        {
+          "run_id": "run-20260510T190258829737Z",
+          "prompt": "create a list of decimal numbers between 10 and 30 with 15 members in ascending order. Map that list to the square root of each number, then output the total sum",
+          "success": true
+        },
+        {
+          "run_id": "run-20260510T190351114594Z",
+          "prompt": "create a list of decimal numbers between 10 and 30 with 15 members in ascending order. Map that list to the square root of each number, then output the total sum",
+          "success": true
+        },
+        {
+          "run_id": "run-20260510T190453088312Z",
+          "prompt": "create a list of decimal numbers between 10 and 30 with 15 members in ascending order. Map that list to the square root of each number, then output the total sum",
+          "success": true
+        },
+        {
+          "run_id": "run-20260511T101310514815Z",
+          "prompt": "Generate a decimal sequence from 1 to 10, map the square root of each element, then sum the transformed values.",
+          "success": true
+        },
+        {
+          "run_id": "run-20260511T101324913375Z",
+          "prompt": "replay:artifacts/run-20260511T101310514815Z/machine_code.bin",
+          "success": true
+        }
+      ]
+    },
+    "skill.abstraction.1000.103-104": {
+      "skill_id": "skill.abstraction.1000.103-104",
+      "name": "opcode_1000",
+      "kind": "abstraction",
+      "op_code": 1000,
+      "source_op_codes": [
+        103,
+        104
+      ],
+      "rationale": "Repeated anomaly scoring and thresholding can be compressed into a reusable schema.",
+      "score": 0.86,
+      "application_count": 2,
+      "active_reference_count": 0,
+      "status": "retired",
+      "executable_references": [],
+      "source_runs": [
+        {
+          "run_id": "run-20260511T064653806533Z",
+          "prompt": "Detect anomalies in a streaming signal with low false positives",
+          "success": true
+        },
+        {
+          "run_id": "run-20260511T064710709545Z",
+          "prompt": "replay:artifacts/run-20260511T064653806533Z/machine_code.bin",
+          "success": true
+        }
+      ]
+    },
+    "skill.abstraction.1000.201-202": {
+      "skill_id": "skill.abstraction.1000.201-202",
+      "name": "opcode_1000",
+      "kind": "abstraction",
+      "op_code": 1000,
+      "source_op_codes": [
+        201,
+        202
+      ],
+      "rationale": "Random array generation and randomized element mapping can be fused into a reusable array transformation schema.",
+      "score": 0.79,
+      "application_count": 5,
+      "active_reference_count": 0,
+      "status": "retired",
+      "executable_references": [],
+      "source_runs": [
+        {
+          "run_id": "run-20260511T065757519574Z",
+          "prompt": "Create a 9-element array of random numbers whose value is between 2 and 14, then create an array that maps the first array with random maths operations applied to each member.",
+          "success": true
+        },
+        {
+          "run_id": "run-20260511T065806628396Z",
+          "prompt": "replay:artifacts/run-20260511T065757519574Z/machine_code.bin",
+          "success": true
+        },
+        {
+          "run_id": "run-20260511T071107132484Z",
+          "prompt": "Create a 5-element array of random numbers whose value is between 1 and 10, then create an array that is a map of the first array with random maths operation applied to the members of the first array.",
+          "success": true
+        },
+        {
+          "run_id": "run-20260511T071119519362Z",
+          "prompt": "Create a 5-element array of random numbers whose value is between 1 and 10, then create an array that is a map of the first array with random maths operation applied to the members of the first array.",
+          "success": true
+        },
+        {
+          "run_id": "run-20260511T071119596975Z",
+          "prompt": "replay:artifacts/run-20260511T071119519362Z/machine_code.bin",
           "success": true
         }
       ]

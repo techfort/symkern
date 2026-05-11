@@ -25,6 +25,9 @@ class ArtifactBundle:
     language_snapshot: dict[str, object] = field(default_factory=dict)
     timings: dict[str, object] = field(default_factory=dict)
     backend: dict[str, object] = field(default_factory=dict)
+    input_contract: list[dict[str, object]] = field(default_factory=list)
+    program_spec: dict[str, object] = field(default_factory=dict)
+    synthesis_validation: dict[str, object] = field(default_factory=dict)
 
     def machine_language_dict(self) -> dict[str, object]:
         if self.language_snapshot:
@@ -54,6 +57,9 @@ class ArtifactBundle:
             "files": dict(self.files),
             "timings": dict(self.timings),
             "backend": dict(self.backend),
+            "input_contract": list(self.input_contract),
+            "program_spec": dict(self.program_spec),
+            "synthesis_validation": dict(self.synthesis_validation),
         }
 
 
@@ -70,6 +76,9 @@ class ArtifactStore:
         run_dir.mkdir(parents=True, exist_ok=True)
         artifact_path = run_dir / "machine_artifact.json"
         artifact_path.write_text(json.dumps(bundle.to_dict(), indent=2), encoding="utf-8")
+        if bundle.program_spec:
+            program_spec_path = run_dir / "program_spec.json"
+            program_spec_path.write_text(json.dumps(bundle.program_spec, indent=2), encoding="utf-8")
         return artifact_path
 
     def save_machine_code(self, bundle: ArtifactBundle) -> tuple[Path, Path]:

@@ -39,6 +39,8 @@ class Periscope:
                 f"- Strategy: {bundle.plan.metadata.get('strategy', 'unknown')}",
                 f"- Final detections: {detections}",
                 f"- Reason codes: {', '.join(bundle.reason_codes) or 'none'}",
+                "## Synthesis Validation",
+                *self._describe_synthesis_validation(bundle),
                 "## Inputs",
                 *input_lines,
                 "## Outputs",
@@ -58,6 +60,29 @@ class Periscope:
             ]
         )
         return PeriscopeReport(summary=summary, details=details)
+
+    @staticmethod
+    def _describe_synthesis_validation(bundle: ArtifactBundle) -> list[str]:
+        validation = dict(bundle.synthesis_validation)
+        if not validation:
+            gaps = list(dict(bundle.program_spec).get("synthesis_gaps", []))
+            if not gaps:
+                return ["- No synthesis validation details were recorded for this run."]
+            return [
+                "- Validation details were not persisted separately, but the program spec contains synthesis gaps.",
+                *[
+                    f"- Gap `{gap.get('reason', 'unknown')}` at stage `{gap.get('stage_id', 'unknown')}`: {gap.get('notes', 'none')}"
+                    for gap in gaps
+                ],
+            ]
+        lines = [f"- Status: {validation.get('status', 'unknown')}"]
+        for failure in list(validation.get("failures", [])):
+            lines.append(
+                f"- Failure `{failure.get('reason', 'unknown')}` at stage `{failure.get('stage_id', 'unknown')}`: {failure.get('notes', 'none')}"
+            )
+        if not list(validation.get("failures", [])):
+            lines.append("- No synthesis failures were recorded.")
+        return lines
 
     @staticmethod
     def _reconstruct_strategy(bundle: ArtifactBundle, operation_schemas: dict[int, dict[str, object]]) -> list[str]:
